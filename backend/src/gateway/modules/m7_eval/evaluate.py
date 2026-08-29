@@ -6,6 +6,7 @@ from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
 
+from gateway.pricing import CHEAP_PER_1K_USD, FX_INR_PER_USD, PREMIUM_PER_1K_USD
 from gateway.schemas import EvalRecord, EvalResult, EvalSummary
 from gateway.tokenizer import TokenCounter
 
@@ -79,9 +80,9 @@ class HinglishEvaluator:
     def __init__(
         self,
         counter: TokenCounter | None = None,
-        premium_per_1k: float = 0.0025,
-        cheap_per_1k: float = 0.00006,
-        fx_rate_inr_per_usd: float = 83.5,
+        premium_per_1k: float = PREMIUM_PER_1K_USD,
+        cheap_per_1k: float = CHEAP_PER_1K_USD,
+        fx_rate_inr_per_usd: float = FX_INR_PER_USD,
     ) -> None:
         self.counter = counter or TokenCounter()
         self.premium_per_1k = premium_per_1k

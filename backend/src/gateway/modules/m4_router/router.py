@@ -5,6 +5,7 @@ import time
 from gateway.llm import BaseLLMClient
 from gateway.modules.m3_conformal.conformal import ConformalCalibrator
 from gateway.modules.m4_router.difficulty import DifficultyScorer
+from gateway.pricing import CHEAP_PER_1K_USD, PREMIUM_PER_1K_USD
 from gateway.schemas import DispatchResult
 from gateway.tokenizer import TokenCounter
 
@@ -21,8 +22,8 @@ class CascadeRouter:
         scorer: DifficultyScorer | None = None,
         counter: TokenCounter | None = None,
         dry_run: bool = True,
-        cheap_cost_per_1k: float = 0.00006,
-        premium_cost_per_1k: float = 0.0025,
+        cheap_cost_per_1k: float = CHEAP_PER_1K_USD,
+        premium_cost_per_1k: float = PREMIUM_PER_1K_USD,
     ) -> None:
         self.calibrator = calibrator
         self.cheap_client = cheap_client

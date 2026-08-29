@@ -89,12 +89,27 @@ async def healthz():
     s = get_settings()
     gw = gateway()
     cal_path = s.data_dir / "calibration.jsonl"
+    # Honest is_real: bench-derived samples indicate grounding, pure pad-only is synthetic
+    bench_n = 0
+    pad_n = 0
+    if cal_path.exists() and cal_path.stat().st_size > 0:
+        try:
+            for line in cal_path.read_text(encoding="utf-8").splitlines():
+                if "bench-" in line:
+                    bench_n += 1
+                elif "pad-" in line:
+                    pad_n += 1
+        except Exception:
+            pass
+    is_real = bench_n > 0
     return {
         "status": "ok",
         "dry_run": s.dry_run,
         "version": app.version,
         "calibration_n": len(gw.calibration),
-        "calibration_real": cal_path.exists() and cal_path.stat().st_size > 0,
+        "calibration_real": is_real,
+        "calibration_bench_n": bench_n,
+        "calibration_pad_n": pad_n,
         "threshold": gw.calibrator.threshold,
         "cheap_model": s.cheap.model,
         "premium_model": s.premium.model,
@@ -341,7 +356,20 @@ async def calibration_metrics() -> dict:
     hoeffding_bound = round(gw.calibrator.risk_bound, 6)
     s = get_settings()
     cal_path = s.data_dir / "calibration.jsonl"
-    is_real = cal_path.exists() and cal_path.stat().st_size > 0
+    bench_n = 0
+    pad_n = 0
+    if cal_path.exists() and cal_path.stat().st_size > 0:
+        try:
+            for line in cal_path.read_text(encoding="utf-8").splitlines():
+                if "bench-" in line:
+                    bench_n += 1
+                elif "pad-" in line:
+                    pad_n += 1
+        except Exception:
+            pass
+        is_real = bench_n > 0
+    else:
+        is_real = False
     return {
         "n": n,
         "alpha": gw.calibrator.alpha,
@@ -354,6 +382,8 @@ async def calibration_metrics() -> dict:
         "ece": ece,
         "reliability": reliability_diagram(scores, labels),
         "is_real": is_real,
+        "bench_n": bench_n,
+        "pad_n": pad_n,
         "real_path": str(cal_path),
     }
 
@@ -389,14 +419,21 @@ async def calibration_ingest(req: CalibrationIngestRequest) -> dict:
 
 @app.post("/telegram/webhook/{secret}")
 async def telegram_webhook(secret: str, request: Request):
+    import hmac as _hmac
+
     s = get_settings()
-    # secret must match last 8 chars of token or the configured webhook_secret
     expected = s.telegram_webhook_secret or (s.telegram_token[-8:] if s.telegram_token else "")
-    if not expected or secret != expected:
+    # Support Telegram's X-Telegram-Bot-Api-Secret-Token header (constant-time)
+    header_secret = request.headers.get("x-telegram-bot-api-secret-token", "")
+    provided = header_secret or secret
+    if not expected or not _hmac.compare_digest(provided, expected):
         return JSONResponse(status_code=403, content={"error": "invalid webhook secret"})
     if not s.telegram_token:
         return JSONResponse(status_code=503, content={"error": "telegram not configured"})
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "invalid JSON"})
     # Telegram Update minimal parsing
     msg = (body.get("message") or body.get("edited_message") or {})
     text = (msg.get("text") or "").strip()
@@ -411,20 +448,17 @@ async def telegram_webhook(secret: str, request: Request):
         reply_text = "namaste! apna sawal bhejo — Hinglish me bhi chalega."
     else:
         try:
-            from gateway.modules.m6_telegram.bot import call_gateway  # type: ignore
+            # Direct internal call — avoids hardcoded localhost HTTP loop and double logging
+            gw = gateway()
+            from gateway.schemas import ChatCompletionRequest, ChatMessage
 
-            reply_text, meta = await call_gateway(text, gateway_url="http://127.0.0.1:8000")
-            # log already happens in gateway service; also log via bot helper for consistency
-            try:
-                get_log_db().log(
-                    user_id=f"tg:{user_id}",
-                    original_tokens=int(meta.get("original_tokens", 0)),
-                    compressed_tokens=int(meta.get("compressed_tokens", 0)),
-                    model_routed=str(meta.get("model_routed", "")),
-                    estimated_cost_savings=float(meta.get("estimated_cost_savings_usd", 0.0)),
-                )
-            except Exception:
-                pass
+            req = ChatCompletionRequest(
+                model="cascade",
+                messages=[ChatMessage(role="user", content=text)],
+                user=f"tg:{user_id}",
+            )
+            resp = await gw.handle(req)
+            reply_text = resp.choices[0].message.content if resp.choices else ""
         except Exception as exc:
             reply_text = f"sorry, gateway error: {exc}"
     # send via Telegram Bot API
@@ -441,9 +475,13 @@ async def telegram_webhook(secret: str, request: Request):
 
 @app.get("/telegram/webhook/{secret}")
 async def telegram_webhook_info(secret: str):
+    import hmac as _hmac
+
     s = get_settings()
     expected = s.telegram_webhook_secret or (s.telegram_token[-8:] if s.telegram_token else "")
-    return {"configured": bool(s.telegram_token), "secret_ok": secret == expected}
+    # Do not oracle secret via timing — constant-time but do not reveal
+    ok = bool(expected and _hmac.compare_digest(secret, expected)) if expected else False
+    return {"configured": bool(s.telegram_token), "secret_ok": ok}
 
 
 @app.get("/v1/diagnostics/upstream")

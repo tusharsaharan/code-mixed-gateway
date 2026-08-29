@@ -82,7 +82,9 @@ class TelegramBot:
         app.add_handler(text)
         app.run_polling()
 
-    def run_webhook(self, url: str, listen: str = "0.0.0.0", port: int = 8443) -> None:
+    def run_webhook(
+        self, url: str, listen: str = "0.0.0.0", port: int = 8443, secret: str | None = None
+    ) -> None:
         app = self.build_app()
         from telegram.ext import CommandHandler, MessageHandler, filters
 
@@ -92,16 +94,24 @@ class TelegramBot:
         text = MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_update)
         app.add_handler(start)
         app.add_handler(text)
+        # Use explicit secret, not full bot token, in URL path
+        path_secret = secret or _derive_secret(self.token)
         app.run_webhook(
             listen=listen,
             port=port,
-            url_path=token_path(self.token),
-            webhook_url=f"{url}/{token_path(self.token)}",
+            url_path=token_path(path_secret),
+            webhook_url=f"{url}/{token_path(path_secret)}",
+            secret_token=path_secret if secret else None,
         )
 
 
-def token_path(token: str) -> str:
-    return f"webhook/{token}"
+def _derive_secret(token: str) -> str:
+    # Fallback: last 8 chars, but prefer explicit webhook_secret via config
+    return token[-8:] if token else ""
+
+
+def token_path(secret: str) -> str:
+    return f"webhook/{secret}"
 
 
 def build_db(path: str | Path) -> LogDB:

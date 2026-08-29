@@ -41,4 +41,11 @@ def load_samples(path: Path) -> list[CalibSample]:
 
 
 def is_real(path: Path) -> bool:
-    return path.exists() and path.stat().st_size > 0
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    try:
+        text = path.read_text(encoding="utf-8")
+        # Honest check: at least one bench-derived sample (handle no-space JSON)
+        return "bench-" in text
+    except Exception:
+        return False

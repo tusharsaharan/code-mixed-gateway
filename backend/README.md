@@ -9,12 +9,15 @@ routing, exposed as an OpenAI-compatible `/v1/chat/completions` endpoint.
 | --- | ----------------------------------- | ------------------------------------ | ------------------------------------------------------------------------ |
 | 1   | Data pipeline + tokenizer benchmark | `src/gateway/modules/m1_pipeline/`   | token counts across tokenizers, code-mix token inflation                 |
 | 2   | Compressor                          | `src/gateway/modules/m2_compressor/` | safety-span masking, heuristic/LLM compression, fail-closed re-injection |
-| 3   | Conformal calibrator                | `src/gateway/modules/m3_conformal/`  | split-conformal error-bound threshold                                    |
-| 4   | Cascade router                      | `src/gateway/modules/m4_router/`     | difficulty scoring + cheap/premium dispatch                              |
-| 5   | FastAPI gateway                     | `src/gateway/modules/m5_gateway/`    | OpenAI-compatible `/v1/chat/completions`                                 |
-| 6   | Telegram bot + SQLite               | `src/gateway/modules/m6_telegram/`   | webhook/polling bridge + cost-savings logging                            |
+| 3   | Conformal calibrator                | `src/gateway/modules/m3_conformal/`  | split-conformal error-bound threshold (Hoeffding LTT, grid 200)          |
+| 4   | Cascade router                      | `src/gateway/modules/m4_router/`     | difficulty scoring + cheap/premium dispatch (pricing via `pricing.py`)   |
+| 5   | FastAPI gateway                     | `src/gateway/modules/m5_gateway/`    | OpenAI-compatible `/v1/chat/completions`, streaming + `x_gateway` meta   |
+| 6   | Telegram bot + SQLite               | `src/gateway/modules/m6_telegram/`   | webhook/polling bridge + cost-savings logging (secret via header)        |
 | 7   | Evaluation suite                    | `src/gateway/modules/m7_eval/`       | Hinglish BLEU/ROUGE-L, token savings, span preservation, $/₹ cost        |
 | 8   | Live dashboard                      | `src/gateway/modules/m8_dashboard/`  | `/v1/dashboard/*` endpoints + static HTML dashboard                      |
+| 9   | Reasoning budget                    | `src/gateway/modules/m9_reasoning/`  | thinking-token budget estimator + Hinglish-vs-English delta              |
+| 10  | Distill / reward                    | `src/gateway/modules/m10_train/`     | rejection-sampling distillation (CPU fallback) + task-correctness reward |
+| 11  | Calibration + pricing               | `src/gateway/modules/m11_calibration/` + `pricing.py` + `config.py` | ECE/reliability, central pricing (single source `pricing.py`) |
 
 ## Setup
 
@@ -54,7 +57,18 @@ ruff check src tests
 
 ## Data
 
-- `data/seed_hinglish.jsonl` — synthetic Hinglish seed (fluff + protected placeholders).
-- `data/tokenizer_report.csv` — per-tokenizer token counts (written by module 1).
-- `data/calibration.jsonl` — optional calibration samples for the conformal router
-  (synthetic defaults are used if absent).
+- `data/seed_hinglish.jsonl` — synthetic Hinglish seed (fluff + protected placeholders), committed.
+- `data/benchmark.jsonl` — 50-row synthetic benchmark (heuristic compressed preview, `is_synthetic:true`), ignored.
+- `data/calibration.jsonl` — 2000-row calibration (50 bench + 1950 pad synthetic), `is_real = bench_n>0`, ignored; synthetic defaults used if absent.
+- `data/tokenizer_report.csv` — per-tokenizer token counts (written by module 1), ignored.
+- `data/checkpoints/distilled.json` — 50-row distilled mapping (regenerate via `python -c "from gateway.modules.m10_train.distill import distill; distill(Path('data/benchmark.jsonl'), Path('data/checkpoints/distilled.json'))"`), ignored.
+- `data/pilot.sqlite` — WAL-mode SQLite pilot log, ignored (`-shm/-wal` also ignored).
+
+## Pricing
+
+Single source `src/gateway/pricing.py` (`CHEAP_PER_1K_USD=0.00006`, `PREMIUM_PER_1K_USD=0.0025`, `FX_INR_PER_USD=83.5`, `PRICING_DATE=2026-08-28`). `config.py` and both `router.py` / `evaluate.py` import from there. Token counts are via `TokenCounter` (`tiktoken` if installed else whitespace) — costs are approximate and vary ~1.5× by tokenizer.
+
+## Env & Proxy
+
+- Backend: `GATEWAY_DRY_RUN=true` (offline mocks), `GATEWAY_PUBLIC_URL` for Telegram webhook loopback, `GATEWAY_TELEGRAM_WEBHOOK_SECRET` (not `token[-8:]` fallback) and `X-Telegram-Bot-Api-Secret-Token` header.
+- Frontend: `VITE_GATEWAY_URL` — empty uses Vite proxy (`/v1,/dashboard,/healthz,/docs` → `127.0.0.1:8000` in dev); set to hosted origin in prod.
