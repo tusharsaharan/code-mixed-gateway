@@ -53,14 +53,8 @@ function PilotPage() {
 
       <div className="mt-12 flex flex-wrap gap-3">
         <Link
-          to="/demo"
-          className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-        >
-          Try the live demo
-        </Link>
-        <Link
           to="/benchmark"
-          className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium transition-colors hover:bg-secondary"
+          className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
         >
           See the benchmark it feeds
         </Link>

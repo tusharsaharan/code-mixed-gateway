@@ -7,15 +7,9 @@ const NAV = [
   { to: "/", label: "Overview", exact: true },
   { to: "/research", label: "Research" },
   { to: "/benchmark", label: "Benchmark" },
-  { to: "/fairness", label: "Fairness" },
   { to: "/roadmap", label: "Roadmap" },
   { to: "/team", label: "Team & Compute" },
   { to: "/pilot", label: "Pilot" },
-  { to: "/demo", label: "Live demo" },
-  { to: "/analytics", label: "Analytics" },
-  { to: "/calibration", label: "Calibration" },
-  { to: "/api", label: "API" },
-  { to: "/compare", label: "Compare" },
 ] as const;
 
 function NavItem({ to, label, exact }: { to: string; label: string; exact?: boolean }) {
@@ -235,11 +229,6 @@ export function SiteFooter() {
                 </Link>
               </li>
               <li>
-                <Link to="/fairness" className="text-muted-foreground hover:text-foreground">
-                  Token fairness
-                </Link>
-              </li>
-              <li>
                 <Link to="/roadmap" className="text-muted-foreground hover:text-foreground">
                   12-week roadmap
                 </Link>
@@ -252,31 +241,6 @@ export function SiteFooter() {
               <li>
                 <Link to="/pilot" className="text-muted-foreground hover:text-foreground">
                   Live pilot
-                </Link>
-              </li>
-              <li>
-                <Link to="/demo" className="text-muted-foreground hover:text-foreground">
-                  Live demo
-                </Link>
-              </li>
-              <li>
-                <Link to="/analytics" className="text-muted-foreground hover:text-foreground">
-                  Analytics
-                </Link>
-              </li>
-              <li>
-                <Link to="/calibration" className="text-muted-foreground hover:text-foreground">
-                  Calibration
-                </Link>
-              </li>
-              <li>
-                <Link to="/api" className="text-muted-foreground hover:text-foreground">
-                  API
-                </Link>
-              </li>
-              <li>
-                <Link to="/compare" className="text-muted-foreground hover:text-foreground">
-                  Hinglish vs English
                 </Link>
               </li>
             </ul>
