@@ -34,13 +34,13 @@ export const Route = createFileRoute("/benchmark")({
   }),
   loader: async () => {
     try {
-      if (!GATEWAY_URL) return { curve: null, summary: null };
+      const base = GATEWAY_URL || (typeof window === "undefined" ? "http://127.0.0.1:8000" : "");
       const [curveRes, summaryRes] = await Promise.all([
-        fetch(`${GATEWAY_URL}/v1/eval/curve`).then((r) => {
+        fetch(`${base}/v1/eval/curve`).then((r) => {
           if (!r.ok) throw new Error(String(r.status));
           return r.json();
         }),
-        fetch(`${GATEWAY_URL}/v1/eval/summary`).then((r) => {
+        fetch(`${base}/v1/eval/summary`).then((r) => {
           if (!r.ok) throw new Error(String(r.status));
           return r.json();
         }),
