@@ -77,9 +77,12 @@ class MockLLMClient(BaseLLMClient):
             content = f"[mock:{self.model}] {last}"
         else:
             content = self.canned
+        # Realistic token counts for cost estimation (was 1, now heuristic)
+        prompt_tokens = len(content.split())
+        completion_tokens = max(1, len(content.split()) // 2 + 1)
         return LLMResult(
             content=content,
-            usage=Usage(prompt_tokens=len(content.split()), completion_tokens=1, total_tokens=0),
+            usage=Usage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=0),
             model=self.model,
         )
 

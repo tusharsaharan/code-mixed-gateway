@@ -102,6 +102,8 @@ async def healthz():
         except Exception:
             pass
     is_real = bench_n > 0
+    from gateway.tokenizer import TokenCounter
+
     return {
         "status": "ok",
         "dry_run": s.dry_run,
@@ -113,6 +115,7 @@ async def healthz():
         "threshold": gw.calibrator.threshold,
         "cheap_model": s.cheap.model,
         "premium_model": s.premium.model,
+        "tokenizer_backend": TokenCounter().backend,
         "pricing_date": s.pricing_date,
     }
 

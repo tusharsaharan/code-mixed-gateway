@@ -2,6 +2,8 @@
 
 All cost calculations must import from here — never hardcode rates inline.
 Update PRICING_DATE when rates change and keep FX in sync with config.
+Token counts come from TokenCounter (tiktoken_cl100k_base if installed,
+otherwise whitespace) — hence $/₹ are approximate; see tokenizer report.
 """
 
 PRICING_DATE = "2026-08-28"

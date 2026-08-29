@@ -6,7 +6,12 @@ _WS = re.compile(r"\s+")
 
 
 class TokenCounter:
-    """Count tokens; uses tiktoken when available, else a whitespace heuristic."""
+    """Count tokens; uses tiktoken when available, else a whitespace heuristic.
+
+    Costs are tokenizer-dependent — tiktoken vs whitespace can differ ~1.5× on
+    Hinglish (see /v1/tokenizer/report). All cost numbers are therefore
+    approximate; treat as lower-bound when whitespace is active.
+    """
 
     def __init__(self, encoding: str = "cl100k_base") -> None:
         self.encoding = encoding
@@ -20,6 +25,10 @@ class TokenCounter:
             return tiktoken.get_encoding("cl100k_base")
         except Exception:
             return None
+
+    @property
+    def backend(self) -> str:
+        return "tiktoken_cl100k_base" if self._enc is not None else "whitespace"
 
     def count(self, text: str) -> int:
         if self._enc is not None:
