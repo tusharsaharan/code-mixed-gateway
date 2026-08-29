@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json as _json
+import threading as _threading
 import time as _time
 from typing import Annotated
 
@@ -30,6 +31,8 @@ from gateway.schemas import (
     SeriesPoint,
 )
 from gateway.service import Gateway, get_log_db
+
+_calibration_lock = _threading.Lock()
 
 app = FastAPI(
     title="Code-Mixed Gateway",
@@ -217,8 +220,14 @@ async def _stream_chat(request: ChatCompletionRequest):  # type: ignore[no-untyp
     yield b"data: [DONE]\n\n"
     if gw.settings.log_requests:
         try:
-            prompt_tokens = gw.counter.count(compressed.compressed)
-            completion_tokens = gw.counter.count(full)
+            # Prefer provider usage if available (stream_options.include_usage)
+            usage = getattr(client, "last_usage", None)
+            if isinstance(usage, dict) and usage.get("completion_tokens") is not None:
+                prompt_tokens = int(usage.get("prompt_tokens") or gw.counter.count(compressed.compressed))
+                completion_tokens = int(usage.get("completion_tokens") or gw.counter.count(full))
+            else:
+                prompt_tokens = gw.counter.count(compressed.compressed)
+                completion_tokens = gw.counter.count(full)
             cost = gw.router._estimate_cost(tier, prompt_tokens, completion_tokens)
             premium_cost = gw.router._estimate_cost("premium", prompt_tokens, completion_tokens)
             savings = max(0.0, premium_cost - cost)
@@ -333,6 +342,17 @@ async def eval_curve() -> list[dict]:
     return curve_points(bench, s.distilled_checkpoint)
 
 
+@app.get("/v1/eval/curve/sweep")
+async def eval_curve_sweep() -> list[dict]:
+    from gateway.modules.m7_eval.evaluate import curve_sweep
+
+    s = get_settings()
+    bench = s.data_dir / "benchmark.jsonl"
+    if not bench.exists():
+        return []
+    return curve_sweep(bench, s.distilled_checkpoint)
+
+
 @app.get("/v1/eval/summary")
 async def eval_summary() -> dict:
     from gateway.modules.m7_eval.evaluate import HinglishEvaluator, load_records
@@ -408,16 +428,33 @@ async def calibration_ingest(req: CalibrationIngestRequest) -> dict:
             parsed.append(CalibSample.model_validate(row))
         except Exception as e:
             raise ValueError(f"invalid sample {row}: {e}") from e
-    append_many(path, parsed)
-    # also reload calibrator via new gateway instance? Note: gateway() is singleton
-    # so we need to re-calibrate in place
-    gw = gateway()
-    # reload from disk to ensure consistency
-    from gateway.service import load_calibration
+    with _calibration_lock:
+        append_many(path, parsed)
+        gw = gateway()
+        from gateway.service import load_calibration
 
-    gw.calibration = load_calibration(s.data_dir)
-    gw.calibrator.calibrate(gw.calibration)
-    return {"ingested": len(parsed), "n_total": len(gw.calibration), "threshold": gw.calibrator.threshold}
+        gw.calibration = load_calibration(s.data_dir)
+        gw.calibrator.calibrate(gw.calibration)
+        # lineage for audit
+        try:
+            meta_path = s.data_dir / "calibration.meta.json"
+            bench_n = sum(1 for c in gw.calibration if str(c.id).startswith("bench-"))
+            pad_n = sum(1 for c in gw.calibration if str(c.id).startswith("pad-"))
+            meta = {
+                "updated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+                "n_total": len(gw.calibration),
+                "bench_n": bench_n,
+                "pad_n": pad_n,
+                "alpha": gw.calibrator.alpha,
+                "delta": gw.calibrator.delta,
+                "threshold": gw.calibrator.threshold,
+                "risk_hat": gw.calibrator.risk_hat,
+                "risk_bound": gw.calibrator.risk_bound,
+            }
+            meta_path.write_text(_json.dumps(meta, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        return {"ingested": len(parsed), "n_total": len(gw.calibration), "threshold": gw.calibrator.threshold}
 
 
 @app.post("/telegram/webhook/{secret}")

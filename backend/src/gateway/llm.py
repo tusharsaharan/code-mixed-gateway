@@ -65,6 +65,7 @@ class MockLLMClient(BaseLLMClient):
     def __init__(self, model: str, canned: str | None = None) -> None:
         self.model = model
         self.canned = canned
+        self.last_usage: dict[str, Any] | None = None
 
     async def chat(
         self,
@@ -80,6 +81,7 @@ class MockLLMClient(BaseLLMClient):
         # Realistic token counts for cost estimation (was 1, now heuristic)
         prompt_tokens = len(content.split())
         completion_tokens = max(1, len(content.split()) // 2 + 1)
+        self.last_usage = {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens}
         return LLMResult(
             content=content,
             usage=Usage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=0),
@@ -103,10 +105,12 @@ class OpenAIClient(BaseLLMClient):
             "messages": self._dump(messages),
             "temperature": temperature,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
 
+        self.last_usage: dict[str, Any] | None = None
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             async with client.stream(
                 "POST", f"{self.base_url}/chat/completions", headers=self._headers, json=payload
@@ -121,7 +125,9 @@ class OpenAIClient(BaseLLMClient):
                         break
                     try:
                         obj = _json.loads(data)
-                        delta = obj["choices"][0].get("delta", {})
+                        if "usage" in obj and obj["usage"]:
+                            self.last_usage = obj["usage"]
+                        delta = obj.get("choices", [{}])[0].get("delta", {}) if obj.get("choices") else {}
                         content = delta.get("content")
                         if content:
                             yield content

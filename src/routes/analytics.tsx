@@ -30,6 +30,31 @@ export const Route = createFileRoute("/analytics")({
       },
     ],
   }),
+  loader: async () => {
+    try {
+      if (!GATEWAY_URL) return { stats: null, series: [], recent: [], error: null };
+      const [stats, series, recent] = await Promise.all([
+        fetchDashboardStats(),
+        fetchSeries(),
+        fetchRecent(20),
+      ]);
+      return { stats, series, recent, error: null as string | null };
+    } catch (e) {
+      return {
+        stats: null,
+        series: [],
+        recent: [],
+        error: e instanceof Error ? e.message : String(e),
+      };
+    }
+  },
+  errorComponent: ({ error }) => (
+    <div className="mx-auto max-w-6xl px-5 pt-14">
+      <p className="text-sm text-destructive">
+        Analytics failed to load: {String((error as Error)?.message ?? error)}
+      </p>
+    </div>
+  ),
   component: AnalyticsPage,
 });
 
@@ -43,12 +68,18 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function AnalyticsPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const loaderData = Route.useLoaderData() as {
+    stats: DashboardStats | null;
+    series: { bucket: string; queries: number; savings_usd: number }[];
+    recent: unknown[];
+    error: string | null;
+  };
+  const [stats, setStats] = useState<DashboardStats | null>(loaderData.stats ?? null);
   const [series, setSeries] = useState<{ bucket: string; queries: number; savings_usd: number }[]>(
-    [],
+    loaderData.series ?? [],
   );
-  const [recent, setRecent] = useState<unknown[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [recent, setRecent] = useState<unknown[]>(loaderData.recent ?? []);
+  const [error, setError] = useState<string | null>(loaderData.error ?? null);
 
   const load = async () => {
     try {
@@ -67,7 +98,7 @@ function AnalyticsPage() {
   };
 
   useEffect(() => {
-    load();
+    // if loader already seeded, keep polling
     const id = setInterval(load, 15000);
     return () => clearInterval(id);
   }, []);

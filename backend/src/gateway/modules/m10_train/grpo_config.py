@@ -30,7 +30,7 @@ class GRPOConfig:
 
     def describe(self) -> str:
         return (
-            f"GRPO from {self.base_model} → {self.compressor_model} "
+            f"GRPO from {self.base_model} -> {self.compressor_model} "
             f"on {self.dataset} for {self.max_steps} steps "
             f"(group={self.group_size}, kl={self.kl_coef}); "
             f"fallback: {self.fallback}"

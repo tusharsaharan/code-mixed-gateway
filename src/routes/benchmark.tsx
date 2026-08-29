@@ -5,6 +5,8 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -30,6 +32,31 @@ export const Route = createFileRoute("/benchmark")({
       },
     ],
   }),
+  loader: async () => {
+    try {
+      if (!GATEWAY_URL) return { curve: null, summary: null };
+      const [curveRes, summaryRes] = await Promise.all([
+        fetch(`${GATEWAY_URL}/v1/eval/curve`).then((r) => {
+          if (!r.ok) throw new Error(String(r.status));
+          return r.json();
+        }),
+        fetch(`${GATEWAY_URL}/v1/eval/summary`).then((r) => {
+          if (!r.ok) throw new Error(String(r.status));
+          return r.json();
+        }),
+      ]);
+      return { curve: curveRes, summary: summaryRes };
+    } catch {
+      return { curve: null, summary: null };
+    }
+  },
+  errorComponent: ({ error }) => (
+    <div className="mx-auto max-w-6xl px-5 pt-14">
+      <p className="text-sm text-destructive">
+        Benchmark failed to load: {String((error as Error)?.message ?? error)}
+      </p>
+    </div>
+  ),
   component: BenchmarkPage,
 });
 
@@ -50,12 +77,25 @@ type EvalSummary = {
 };
 
 function BenchmarkPage() {
-  const [curve, setCurve] = useState<CurvePoint[] | null>(null);
+  const loaderData = Route.useLoaderData() as {
+    curve: CurvePoint[] | null;
+    summary: EvalSummary | null;
+  };
+  const [curve, setCurve] = useState<CurvePoint[] | null>(loaderData.curve ?? null);
   const [curveError, setCurveError] = useState<string | null>(null);
-  const [summary, setSummary] = useState<EvalSummary | null>(null);
+  const [summary, setSummary] = useState<EvalSummary | null>(loaderData.summary ?? null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [sweep, setSweep] = useState<{ method: string; target: number; accuracy: number }[] | null>(
+    null,
+  );
 
   useEffect(() => {
+    // sweep always fetches; curve/summary skip if loader provided
+    fetch(`${GATEWAY_URL}/v1/eval/curve/sweep`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setSweep)
+      .catch(() => setSweep([]));
+    if (curve && summary) return;
     fetch(`${GATEWAY_URL}/v1/eval/curve`)
       .then((r) => {
         if (!r.ok) throw new Error(String(r.status));
@@ -70,7 +110,7 @@ function BenchmarkPage() {
       })
       .then((s) => setSummary(s))
       .catch((e) => setSummaryError(e instanceof Error ? e.message : String(e)));
-  }, []);
+  }, [curve, summary]);
 
   return (
     <Page
@@ -222,6 +262,74 @@ function BenchmarkPage() {
           )}
         </Card>
       </div>
+
+      {sweep && sweep.length > 0 ? (
+        <div className="mt-10">
+          <SectionHeading kicker="Fig. 1 — sweep" title="Target kept-ratio vs accuracy (curve)" />
+          <Card>
+            <div className="h-[320px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={(["heuristic", "distilled", "llmlingua2"] as const)
+                    .flatMap((m) =>
+                      sweep
+                        .filter((p) => p.method === m)
+                        .map((p) => ({ target: p.target, [m]: p.accuracy })),
+                    )
+                    .reduce((acc: Record<string, number>[], cur) => {
+                      const ex = acc.find((r) => r["target"] === cur["target"]);
+                      if (ex) Object.assign(ex, cur);
+                      else acc.push(cur as Record<string, number>);
+                      return acc;
+                    }, [])}
+                  margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="target"
+                    tick={{ fontSize: 12 }}
+                    tickFormatter={(v) => `${Math.round(v * 100)}%`}
+                  />
+                  <YAxis domain={[0, 1]} tick={{ fontSize: 12 }} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: 12,
+                    }}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="heuristic"
+                    stroke="hsl(var(--primary))"
+                    dot={false}
+                    strokeWidth={2}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="distilled"
+                    stroke="hsl(var(--accent-foreground))"
+                    dot={false}
+                    strokeWidth={2}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="llmlingua2"
+                    stroke="hsl(var(--muted-foreground))"
+                    dot={false}
+                    strokeDasharray="4 4"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+              Sweep of 30/50/70/90% kept ratio — shows degradation as compression tightens.
+              `llmlingua2` is simulated.
+            </p>
+          </Card>
+        </div>
+      ) : null}
 
       <div className="mt-14">
         <SectionHeading kicker="Reported columns" title="What every row carries" />

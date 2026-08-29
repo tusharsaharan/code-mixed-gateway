@@ -202,10 +202,50 @@ function DemoPage() {
                 {streaming ? <span className="animate-pulse">▍</span> : null}
               </p>
               {meta?.compressed_prompt ? (
-                <div className="mt-4 rounded-lg bg-secondary/50 p-3 text-xs text-muted-foreground">
-                  <span className="font-medium text-foreground">Compressed prompt: </span>
-                  {meta.compressed_prompt}
-                </div>
+                <>
+                  <div className="mt-4 rounded-lg bg-secondary/50 p-3 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">Compressed prompt: </span>
+                    {meta.compressed_prompt}
+                  </div>
+                  <div className="mt-3 rounded-lg border border-border bg-card p-3">
+                    <p className="text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                      Word-level diff (what got cut)
+                    </p>
+                    <p className="mt-2 flex flex-wrap gap-1.5 text-xs leading-relaxed">
+                      {(() => {
+                        const origWords = query.split(/\s+/);
+                        const compSet = new Set(
+                          meta.compressed_prompt
+                            .toLowerCase()
+                            .split(/\s+/)
+                            .map((w) => w.replace(/[,.!?;:"]+/g, "")),
+                        );
+                        return origWords.map((w, i) => {
+                          const norm = w.toLowerCase().replace(/[,.!?;:"]+/g, "");
+                          const isPII = /(@|Rs\.?|\+91|https?:)/.test(w);
+                          const kept = compSet.has(norm) || isPII;
+                          return (
+                            <span
+                              key={i}
+                              className={
+                                kept
+                                  ? "rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700 border border-emerald-200"
+                                  : "rounded bg-red-50 px-1.5 py-0.5 text-red-600 line-through border border-red-200"
+                              }
+                              title={kept ? "kept" : "removed"}
+                            >
+                              {w}
+                            </span>
+                          );
+                        });
+                      })()}
+                    </p>
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Green = kept, red strikethrough = removed. PII/code/amounts are always kept
+                      (safety spans).
+                    </p>
+                  </div>
+                </>
               ) : null}
             </Card>
           ) : null}

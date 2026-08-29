@@ -170,4 +170,4 @@ Pricing single source `backend/src/gateway/pricing.py` (`2026-08-28`, `CHEAP 0.0
 
 ### Honesty note
 
-Every figure on the site is a *target*, *reference number*, or *planned* deliverable until measured results are labelled with evaluation setup + pricing date. Benchmark/calibration data under `backend/data/` is synthetic (`is_synthetic:true`, 50 bench + 1950 pad) until real pilot traffic is ingested.
+Every figure on the site is a _target_, _reference number_, or _planned_ deliverable until measured results are labelled with evaluation setup + pricing date. Benchmark/calibration data under `backend/data/` is synthetic (`is_synthetic:true`, 50 bench + 1950 pad) until real pilot traffic is ingested.

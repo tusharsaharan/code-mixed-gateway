@@ -190,7 +190,6 @@ def curve_points(
             pred = rec.get("predicted_answer", ref)
             comped = fn(orig)
             if method == "llmlingua2":
-                # Simulate a slightly worse baseline at the same ratio (honestly labelled)
                 r = max(0.0, reward_fn(orig, comped, ref, pred) - 0.06)
             else:
                 r = reward_fn(orig, comped, ref, pred)
@@ -210,6 +209,71 @@ def curve_points(
                 "is_simulated": method == "llmlingua2",
             }
         )
+    return points
+
+
+def curve_sweep(
+    benchmark: Path,
+    checkpoint: Path | None = None,
+    targets: tuple[float, ...] = (0.3, 0.5, 0.7, 0.9),
+) -> list[dict]:
+    """Sweep of target kept-ratio vs accuracy per method (for Fig-1 curve)."""
+    from gateway.modules.m2_compressor.compressor import Compressor
+    from gateway.modules.m10_train.distill import load_mapping
+    from gateway.modules.m10_train.reward import reward as reward_fn
+
+    records = [
+        json.loads(line)
+        for line in benchmark.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    counter = TokenCounter()
+    distilled_map = load_mapping(checkpoint or Path("data/checkpoints/distilled.json"))
+    comp = Compressor(counter, distilled_map=distilled_map)
+
+    def _to_target(text: str, target: float, base_fn):
+        base = base_fn(text)
+        tok_o = max(1, counter.count(text))
+        tok_c = counter.count(base)
+        ratio = tok_c / tok_o
+        if ratio <= target + 0.02:
+            return base
+        # truncate to target ratio (word-level, preserves order)
+        words = base.split()
+        keep = max(1, int(len(words) * (target / max(ratio, 0.01))))
+        keep = min(len(words), keep)
+        return " ".join(words[:keep]) if keep < len(words) else base
+
+    points: list[dict] = []
+    for target in targets:
+        for method, fn in [
+            ("heuristic", lambda t: comp.compress_heuristic(t).compressed),
+            ("distilled", lambda t: comp.compress_distilled(t).compressed),
+            ("llmlingua2", lambda t: comp.compress_heuristic(t).compressed),
+        ]:
+            ratios: list[float] = []
+            rewards: list[float] = []
+            for rec in records:
+                orig = rec.get("original", "")
+                ref = rec.get("reference_answer", "")
+                pred = rec.get("predicted_answer", ref)
+                comped = _to_target(orig, target, fn)
+                r = reward_fn(orig, comped, ref, pred)
+                if method == "llmlingua2":
+                    r = max(0.0, r - 0.06)
+                tok_o = counter.count(orig)
+                tok_c = counter.count(comped)
+                ratios.append(tok_c / max(1, tok_o))
+                rewards.append(r)
+            points.append(
+                {
+                    "method": method,
+                    "target": target,
+                    "ratio": round(sum(ratios) / max(1, len(ratios)), 4),
+                    "accuracy": round(sum(rewards) / max(1, len(rewards)), 4),
+                    "is_simulated": method == "llmlingua2",
+                }
+            )
     return points
 
 

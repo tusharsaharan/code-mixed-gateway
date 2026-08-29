@@ -5,19 +5,19 @@ routing, exposed as an OpenAI-compatible `/v1/chat/completions` endpoint.
 
 ## Modules
 
-| #   | Module                              | File                                 | Verifies                                                                 |
-| --- | ----------------------------------- | ------------------------------------ | ------------------------------------------------------------------------ |
-| 1   | Data pipeline + tokenizer benchmark | `src/gateway/modules/m1_pipeline/`   | token counts across tokenizers, code-mix token inflation                 |
-| 2   | Compressor                          | `src/gateway/modules/m2_compressor/` | safety-span masking, heuristic/LLM compression, fail-closed re-injection |
-| 3   | Conformal calibrator                | `src/gateway/modules/m3_conformal/`  | split-conformal error-bound threshold (Hoeffding LTT, grid 200)          |
-| 4   | Cascade router                      | `src/gateway/modules/m4_router/`     | difficulty scoring + cheap/premium dispatch (pricing via `pricing.py`)   |
-| 5   | FastAPI gateway                     | `src/gateway/modules/m5_gateway/`    | OpenAI-compatible `/v1/chat/completions`, streaming + `x_gateway` meta   |
-| 6   | Telegram bot + SQLite               | `src/gateway/modules/m6_telegram/`   | webhook/polling bridge + cost-savings logging (secret via header)        |
-| 7   | Evaluation suite                    | `src/gateway/modules/m7_eval/`       | Hinglish BLEU/ROUGE-L, token savings, span preservation, $/₹ cost        |
-| 8   | Live dashboard                      | `src/gateway/modules/m8_dashboard/`  | `/v1/dashboard/*` endpoints + static HTML dashboard                      |
-| 9   | Reasoning budget                    | `src/gateway/modules/m9_reasoning/`  | thinking-token budget estimator + Hinglish-vs-English delta              |
-| 10  | Distill / reward                    | `src/gateway/modules/m10_train/`     | rejection-sampling distillation (CPU fallback) + task-correctness reward |
-| 11  | Calibration + pricing               | `src/gateway/modules/m11_calibration/` + `pricing.py` + `config.py` | ECE/reliability, central pricing (single source `pricing.py`) |
+| #   | Module                              | File                                                                | Verifies                                                                 |
+| --- | ----------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 1   | Data pipeline + tokenizer benchmark | `src/gateway/modules/m1_pipeline/`                                  | token counts across tokenizers, code-mix token inflation                 |
+| 2   | Compressor                          | `src/gateway/modules/m2_compressor/`                                | safety-span masking, heuristic/LLM compression, fail-closed re-injection |
+| 3   | Conformal calibrator                | `src/gateway/modules/m3_conformal/`                                 | split-conformal error-bound threshold (Hoeffding LTT, grid 200)          |
+| 4   | Cascade router                      | `src/gateway/modules/m4_router/`                                    | difficulty scoring + cheap/premium dispatch (pricing via `pricing.py`)   |
+| 5   | FastAPI gateway                     | `src/gateway/modules/m5_gateway/`                                   | OpenAI-compatible `/v1/chat/completions`, streaming + `x_gateway` meta   |
+| 6   | Telegram bot + SQLite               | `src/gateway/modules/m6_telegram/`                                  | webhook/polling bridge + cost-savings logging (secret via header)        |
+| 7   | Evaluation suite                    | `src/gateway/modules/m7_eval/`                                      | Hinglish BLEU/ROUGE-L, token savings, span preservation, $/₹ cost        |
+| 8   | Live dashboard                      | `src/gateway/modules/m8_dashboard/`                                 | `/v1/dashboard/*` endpoints + static HTML dashboard                      |
+| 9   | Reasoning budget                    | `src/gateway/modules/m9_reasoning/`                                 | thinking-token budget estimator + Hinglish-vs-English delta              |
+| 10  | Distill / reward                    | `src/gateway/modules/m10_train/`                                    | rejection-sampling distillation (CPU fallback) + task-correctness reward |
+| 11  | Calibration + pricing               | `src/gateway/modules/m11_calibration/` + `pricing.py` + `config.py` | ECE/reliability, central pricing (single source `pricing.py`)            |
 
 ## Setup
 
