@@ -86,8 +86,14 @@ function Index() {
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <Link
-              to="/research"
+              to="/demo"
               className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              Try the live gateway
+            </Link>
+            <Link
+              to="/research"
+              className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium transition-colors hover:bg-secondary"
             >
               Read the research plan
             </Link>

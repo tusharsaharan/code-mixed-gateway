@@ -197,7 +197,9 @@ async def _stream_chat(request: ChatCompletionRequest):  # type: ignore[no-untyp
     full = ""
     try:
         async for token in client.stream_chat(
-            [{"role": "user", "content": compressed.compressed}], temperature=request.temperature
+            [{"role": "user", "content": compressed.compressed}],
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
         ):
             full += token
             chunk = {

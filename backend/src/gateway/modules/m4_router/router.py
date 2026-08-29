@@ -37,7 +37,9 @@ class CascadeRouter:
         rate = self.cost_per_1k[tier]
         return (prompt_tokens + completion_tokens) * rate / 1000.0
 
-    async def dispatch_query(self, text: str, task_id: str | None = None) -> DispatchResult:
+    async def dispatch_query(
+        self, text: str, task_id: str | None = None, temperature: float = 0.0, max_tokens: int | None = None
+    ) -> DispatchResult:
         task_id = task_id or f"cmg-{id(self):x}-{int(time.time() * 1e6)}"
         score = self.scorer.score(text)
         threshold = self.calibrator.threshold
@@ -45,7 +47,7 @@ class CascadeRouter:
         client = self.premium_client if tier == "premium" else self.cheap_client
 
         start = time.perf_counter()
-        result = await client.chat([{"role": "user", "content": text}], temperature=0.0)
+        result = await client.chat([{"role": "user", "content": text}], temperature=temperature, max_tokens=max_tokens)
         latency_ms = (time.perf_counter() - start) * 1000.0
 
         prompt_tokens = self.counter.count(text)

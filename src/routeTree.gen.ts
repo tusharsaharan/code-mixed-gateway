@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BenchmarkRouteImport } from './routes/benchmark'
+import { Route as DemoRouteImport } from './routes/demo'
 import { Route as PilotRouteImport } from './routes/pilot'
 import { Route as ResearchRouteImport } from './routes/research'
 import { Route as RoadmapRouteImport } from './routes/roadmap'
@@ -24,6 +25,11 @@ const IndexRoute = IndexRouteImport.update({
 const BenchmarkRoute = BenchmarkRouteImport.update({
   id: '/benchmark',
   path: '/benchmark',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoRoute = DemoRouteImport.update({
+  id: '/demo',
+  path: '/demo',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PilotRoute = PilotRouteImport.update({
@@ -50,6 +56,7 @@ const TeamRoute = TeamRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/benchmark': typeof BenchmarkRoute
+  '/demo': typeof DemoRoute
   '/pilot': typeof PilotRoute
   '/research': typeof ResearchRoute
   '/roadmap': typeof RoadmapRoute
@@ -58,6 +65,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/benchmark': typeof BenchmarkRoute
+  '/demo': typeof DemoRoute
   '/pilot': typeof PilotRoute
   '/research': typeof ResearchRoute
   '/roadmap': typeof RoadmapRoute
@@ -67,6 +75,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/benchmark': typeof BenchmarkRoute
+  '/demo': typeof DemoRoute
   '/pilot': typeof PilotRoute
   '/research': typeof ResearchRoute
   '/roadmap': typeof RoadmapRoute
@@ -74,13 +83,16 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/benchmark' | '/pilot' | '/research' | '/roadmap' | '/team'
+  fullPaths:
+    '/' | '/benchmark' | '/demo' | '/pilot' | '/research' | '/roadmap' | '/team'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/benchmark' | '/pilot' | '/research' | '/roadmap' | '/team'
+  to:
+    '/' | '/benchmark' | '/demo' | '/pilot' | '/research' | '/roadmap' | '/team'
   id:
     | '__root__'
     | '/'
     | '/benchmark'
+    | '/demo'
     | '/pilot'
     | '/research'
     | '/roadmap'
@@ -90,6 +102,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BenchmarkRoute: typeof BenchmarkRoute
+  DemoRoute: typeof DemoRoute
   PilotRoute: typeof PilotRoute
   ResearchRoute: typeof ResearchRoute
   RoadmapRoute: typeof RoadmapRoute
@@ -110,6 +123,13 @@ declare module '@tanstack/react-router' {
       path: '/benchmark'
       fullPath: '/benchmark'
       preLoaderRoute: typeof BenchmarkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo': {
+      id: '/demo'
+      path: '/demo'
+      fullPath: '/demo'
+      preLoaderRoute: typeof DemoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pilot': {
@@ -146,6 +166,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BenchmarkRoute: BenchmarkRoute,
+  DemoRoute: DemoRoute,
   PilotRoute: PilotRoute,
   ResearchRoute: ResearchRoute,
   RoadmapRoute: RoadmapRoute,

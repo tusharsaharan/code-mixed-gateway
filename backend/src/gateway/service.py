@@ -146,7 +146,9 @@ class Gateway:
     async def handle(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         user_text = self._last_user_text(request)
         compressed = await self.compressor.compress(user_text)
-        dispatch = await self.router.dispatch_query(compressed.compressed)
+        dispatch = await self.router.dispatch_query(
+            compressed.compressed, temperature=request.temperature, max_tokens=request.max_tokens
+        )
         meta = self.build_meta(compressed, dispatch, user_text)
 
         response = ChatCompletionResponse(

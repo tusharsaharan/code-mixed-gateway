@@ -5,6 +5,7 @@ import { GATEWAY_URL } from "../../lib/gateway";
 
 const NAV = [
   { to: "/", label: "Overview", exact: true },
+  { to: "/demo", label: "Demo" },
   { to: "/research", label: "Research" },
   { to: "/benchmark", label: "Benchmark" },
   { to: "/roadmap", label: "Roadmap" },
@@ -241,6 +242,11 @@ export function SiteFooter() {
               <li>
                 <Link to="/pilot" className="text-muted-foreground hover:text-foreground">
                   Live pilot
+                </Link>
+              </li>
+              <li>
+                <Link to="/demo" className="text-muted-foreground hover:text-foreground">
+                  Live demo
                 </Link>
               </li>
             </ul>
