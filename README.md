@@ -138,11 +138,36 @@ Continue developing this project in the [Lovable editor](https://lovable.dev/pro
 
 ## Development
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+### Frontend (TanStack Start + Vite)
+
+Requires Node.js 20+ and `bun` (canonical) or `npm` — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating). `bun.lock` is the lockfile; `package-lock.json` is ignored.
 
 ```sh
 git clone <this-repository-url>
 cd <repository-name>
-npm i
-npm run dev
+bun install        # or npm i
+cp .env.example .env   # VITE_GATEWAY_URL — leave empty for Vite proxy (dev), set to hosted gateway in prod
+bun run dev        # or npm run dev — Vite on 5173 proxies /v1,/dashboard,/healthz,/docs → 127.0.0.1:8000
+bun run check      # lint + typecheck + build (also run in CI)
 ```
+
+`VITE_GATEWAY_URL` — empty uses dev proxy (`/v1 → http://127.0.0.1:8000`); production set to gateway origin (e.g. `https://gateway.example.com`).
+
+### Backend (FastAPI gateway)
+
+```sh
+cd backend
+python -m venv .venv
+.venv\Scripts\activate   # Windows; source .venv/bin/activate on Unix
+pip install -e ".[dev]"  # + optional: .[tokenizers] for HF tiktoken/Qwen/Llama
+cp .env.example .env     # GATEWAY_DRY_RUN=true = offline mocks, no keys needed
+.venv/Scripts/python -m pytest -q   # 57 tests
+.venv/Scripts/python -m ruff check src tests
+uvicorn gateway.modules.m5_gateway.main:app --host 127.0.0.1 --port 8000  # or cg-gateway
+```
+
+Pricing single source `backend/src/gateway/pricing.py` (`2026-08-28`, `CHEAP 0.00006 / PREMIUM 0.0025 per 1k, FX 83.5`). Token counts via `TokenCounter` (`tiktoken` if installed else whitespace) — costs are approximate and vary ~1.5× by tokenizer; every `$` ships with its `pricing_date`.
+
+### Honesty note
+
+Every figure on the site is a *target*, *reference number*, or *planned* deliverable until measured results are labelled with evaluation setup + pricing date. Benchmark/calibration data under `backend/data/` is synthetic (`is_synthetic:true`, 50 bench + 1950 pad) until real pilot traffic is ingested.

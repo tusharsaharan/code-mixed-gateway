@@ -42,7 +42,8 @@ class Settings(BaseSettings):
         model="llama-3.1-8b-instant", base_url="https://api.groq.com/openai/v1"
     )
     premium: TierConfig = TierConfig(model="gpt-4o", base_url="https://api.openai.com/v1")
-    local: TierConfig = TierConfig(model="qwen3.6", base_url="http://localhost:11434/v1")
+    # Ollama tag; HF hub id is Qwen/Qwen3-0.6B (see grpo_config.py)
+    local: TierConfig = TierConfig(model="qwen3:0.6b", base_url="http://localhost:11434/v1")
 
     telegram_token: str = ""
 
