@@ -1,0 +1,1 @@
+"""Module 6: Live pilot Telegram bot + SQLite logging."""

@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from gateway.schemas import CalibSample
+
+
+def append_sample(
+    path: Path,
+    sample_id: str,
+    nonconformity: float,
+    cheap_success: bool,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    row = CalibSample(id=sample_id, nonconformity=round(float(nonconformity), 6), cheap_success=bool(cheap_success))
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(row.model_dump_json() + "\n")
+
+
+def append_many(path: Path, samples: list[CalibSample]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as fh:
+        for s in samples:
+            fh.write(s.model_dump_json() + "\n")
+
+
+def load_samples(path: Path) -> list[CalibSample]:
+    if not path.exists():
+        return []
+    out: list[CalibSample] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(CalibSample.model_validate(json.loads(line)))
+        except Exception:
+            continue
+    return out
+
+
+def is_real(path: Path) -> bool:
+    return path.exists() and path.stat().st_size > 0

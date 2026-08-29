@@ -1,0 +1,1 @@
+"""Module 5: FastAPI gateway (OpenAI-compatible /v1/chat/completions)."""

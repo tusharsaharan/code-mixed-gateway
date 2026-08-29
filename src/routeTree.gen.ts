@@ -10,12 +10,31 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
+import { Route as ApiRouteImport } from './routes/api'
 import { Route as BenchmarkRouteImport } from './routes/benchmark'
+import { Route as CalibrationRouteImport } from './routes/calibration'
+import { Route as CompareRouteImport } from './routes/compare'
+import { Route as DemoRouteImport } from './routes/demo'
+import { Route as FairnessRouteImport } from './routes/fairness'
+import { Route as PilotRouteImport } from './routes/pilot'
 import { Route as ResearchRouteImport } from './routes/research'
+import { Route as RoadmapRouteImport } from './routes/roadmap'
+import { Route as TeamRouteImport } from './routes/team'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRoute = ApiRouteImport.update({
+  id: '/api',
+  path: '/api',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BenchmarkRoute = BenchmarkRouteImport.update({
@@ -23,40 +42,148 @@ const BenchmarkRoute = BenchmarkRouteImport.update({
   path: '/benchmark',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CalibrationRoute = CalibrationRouteImport.update({
+  id: '/calibration',
+  path: '/calibration',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CompareRoute = CompareRouteImport.update({
+  id: '/compare',
+  path: '/compare',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoRoute = DemoRouteImport.update({
+  id: '/demo',
+  path: '/demo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FairnessRoute = FairnessRouteImport.update({
+  id: '/fairness',
+  path: '/fairness',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PilotRoute = PilotRouteImport.update({
+  id: '/pilot',
+  path: '/pilot',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ResearchRoute = ResearchRouteImport.update({
   id: '/research',
   path: '/research',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RoadmapRoute = RoadmapRouteImport.update({
+  id: '/roadmap',
+  path: '/roadmap',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TeamRoute = TeamRouteImport.update({
+  id: '/team',
+  path: '/team',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
+  '/api': typeof ApiRoute
   '/benchmark': typeof BenchmarkRoute
+  '/calibration': typeof CalibrationRoute
+  '/compare': typeof CompareRoute
+  '/demo': typeof DemoRoute
+  '/fairness': typeof FairnessRoute
+  '/pilot': typeof PilotRoute
   '/research': typeof ResearchRoute
+  '/roadmap': typeof RoadmapRoute
+  '/team': typeof TeamRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
+  '/api': typeof ApiRoute
   '/benchmark': typeof BenchmarkRoute
+  '/calibration': typeof CalibrationRoute
+  '/compare': typeof CompareRoute
+  '/demo': typeof DemoRoute
+  '/fairness': typeof FairnessRoute
+  '/pilot': typeof PilotRoute
   '/research': typeof ResearchRoute
+  '/roadmap': typeof RoadmapRoute
+  '/team': typeof TeamRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
+  '/api': typeof ApiRoute
   '/benchmark': typeof BenchmarkRoute
+  '/calibration': typeof CalibrationRoute
+  '/compare': typeof CompareRoute
+  '/demo': typeof DemoRoute
+  '/fairness': typeof FairnessRoute
+  '/pilot': typeof PilotRoute
   '/research': typeof ResearchRoute
+  '/roadmap': typeof RoadmapRoute
+  '/team': typeof TeamRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/benchmark' | '/research'
+  fullPaths:
+    | '/'
+    | '/analytics'
+    | '/api'
+    | '/benchmark'
+    | '/calibration'
+    | '/compare'
+    | '/demo'
+    | '/fairness'
+    | '/pilot'
+    | '/research'
+    | '/roadmap'
+    | '/team'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/benchmark' | '/research'
-  id: '__root__' | '/' | '/benchmark' | '/research'
+  to:
+    | '/'
+    | '/analytics'
+    | '/api'
+    | '/benchmark'
+    | '/calibration'
+    | '/compare'
+    | '/demo'
+    | '/fairness'
+    | '/pilot'
+    | '/research'
+    | '/roadmap'
+    | '/team'
+  id:
+    | '__root__'
+    | '/'
+    | '/analytics'
+    | '/api'
+    | '/benchmark'
+    | '/calibration'
+    | '/compare'
+    | '/demo'
+    | '/fairness'
+    | '/pilot'
+    | '/research'
+    | '/roadmap'
+    | '/team'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AnalyticsRoute: typeof AnalyticsRoute
+  ApiRoute: typeof ApiRoute
   BenchmarkRoute: typeof BenchmarkRoute
+  CalibrationRoute: typeof CalibrationRoute
+  CompareRoute: typeof CompareRoute
+  DemoRoute: typeof DemoRoute
+  FairnessRoute: typeof FairnessRoute
+  PilotRoute: typeof PilotRoute
   ResearchRoute: typeof ResearchRoute
+  RoadmapRoute: typeof RoadmapRoute
+  TeamRoute: typeof TeamRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -68,11 +195,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api': {
+      id: '/api'
+      path: '/api'
+      fullPath: '/api'
+      preLoaderRoute: typeof ApiRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/benchmark': {
       id: '/benchmark'
       path: '/benchmark'
       fullPath: '/benchmark'
       preLoaderRoute: typeof BenchmarkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/calibration': {
+      id: '/calibration'
+      path: '/calibration'
+      fullPath: '/calibration'
+      preLoaderRoute: typeof CalibrationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/compare': {
+      id: '/compare'
+      path: '/compare'
+      fullPath: '/compare'
+      preLoaderRoute: typeof CompareRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo': {
+      id: '/demo'
+      path: '/demo'
+      fullPath: '/demo'
+      preLoaderRoute: typeof DemoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/fairness': {
+      id: '/fairness'
+      path: '/fairness'
+      fullPath: '/fairness'
+      preLoaderRoute: typeof FairnessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pilot': {
+      id: '/pilot'
+      path: '/pilot'
+      fullPath: '/pilot'
+      preLoaderRoute: typeof PilotRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/research': {
@@ -82,13 +258,36 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ResearchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/roadmap': {
+      id: '/roadmap'
+      path: '/roadmap'
+      fullPath: '/roadmap'
+      preLoaderRoute: typeof RoadmapRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/team': {
+      id: '/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof TeamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AnalyticsRoute: AnalyticsRoute,
+  ApiRoute: ApiRoute,
   BenchmarkRoute: BenchmarkRoute,
+  CalibrationRoute: CalibrationRoute,
+  CompareRoute: CompareRoute,
+  DemoRoute: DemoRoute,
+  FairnessRoute: FairnessRoute,
+  PilotRoute: PilotRoute,
   ResearchRoute: ResearchRoute,
+  RoadmapRoute: RoadmapRoute,
+  TeamRoute: TeamRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

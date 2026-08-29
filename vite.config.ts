@@ -12,4 +12,15 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    server: {
+      proxy: {
+        "/v1": { target: "http://127.0.0.1:8000", changeOrigin: true },
+        "/dashboard": { target: "http://127.0.0.1:8000", changeOrigin: true },
+        "/healthz": { target: "http://127.0.0.1:8000", changeOrigin: true },
+        "/docs": { target: "http://127.0.0.1:8000", changeOrigin: true },
+        "/openapi.json": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      },
+    },
+  },
 });

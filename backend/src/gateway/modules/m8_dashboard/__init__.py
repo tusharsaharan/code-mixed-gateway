@@ -1,0 +1,1 @@
+"""Module 8: Live pilot dashboard (stats/series/recent over SQLite logs)."""

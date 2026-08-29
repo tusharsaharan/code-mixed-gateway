@@ -1,0 +1,1 @@
+"""Module 7: Evaluation / benchmark suite (Hinglish BLEU/ROUGE, cost in $/₹)."""

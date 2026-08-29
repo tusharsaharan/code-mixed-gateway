@@ -86,8 +86,14 @@ function Index() {
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <Link
-              to="/research"
+              to="/demo"
               className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              Try live demo
+            </Link>
+            <Link
+              to="/research"
+              className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium transition-colors hover:bg-secondary"
             >
               Read the research plan
             </Link>
@@ -96,6 +102,32 @@ function Index() {
               className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium transition-colors hover:bg-secondary"
             >
               The open benchmark
+            </Link>
+            <Link
+              to="/api"
+              className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium transition-colors hover:bg-secondary"
+            >
+              API docs
+            </Link>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2 text-xs">
+            <Link
+              to="/analytics"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
+              Analytics ↗
+            </Link>
+            <Link
+              to="/calibration"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
+              Calibration inspector
+            </Link>
+            <Link
+              to="/compare"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
+              Hinglish vs English
             </Link>
           </div>
         </div>
