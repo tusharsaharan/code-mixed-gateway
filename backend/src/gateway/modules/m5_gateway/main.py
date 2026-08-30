@@ -267,7 +267,9 @@ async def compress_endpoint(req: CompressRequest) -> dict:
         tgt = _tgt(cm, score)
         # Reuse novel adaptive logic (import to avoid circular)
         import re as _re
-        from gateway.modules.m2_compressor.safety_span import mask as _mask, reinject as _reinject
+
+        from gateway.modules.m2_compressor.safety_span import mask as _mask
+        from gateway.modules.m2_compressor.safety_span import reinject as _reinject
 
         _GREET = _re.compile(r"^(hi|hello|hey|namaste|namaskar|hii+|yo|sir|madam|bro|dost)[\s,!.]+", _re.IGNORECASE)
         _WS2 = _re.compile(r"\s+")
@@ -345,7 +347,10 @@ async def compress_methods() -> dict:
     return {
         "methods": ["heuristic", "distilled", "model", "adaptive", "auto"],
         "default": "auto",
-        "notes": "auto uses distilled if available, else model when not dry_run, else heuristic; adaptive is code-mix-aware (novel)",
+        "notes": (
+            "auto uses distilled if available, else model when not dry_run, "
+            "else heuristic; adaptive is code-mix-aware (novel)"
+        ),
     }
 
 
@@ -383,9 +388,9 @@ async def tokenizer_encode(text: str, tokenizer: str = "gpt4o_cl100k") -> dict:
     Supports: gpt4o_cl100k (tiktoken if installed else whitespace), whitespace, char4_proxy,
     and any HF tokenizer listed in tokenizer_bench.HF_TOKENIZER_SPECS (lazy-loaded).
     """
-    from gateway.tokenizer import TokenCounter
     from gateway.modules.m1_pipeline.tokenizer_bench import DEFAULT_TOKENIZERS
     from gateway.pricing import CHEAP_PER_1K_USD, PREMIUM_PER_1K_USD
+    from gateway.tokenizer import TokenCounter
 
     tok = tokenizer.strip()
     fn = DEFAULT_TOKENIZERS.get(tok)
@@ -472,8 +477,8 @@ async def code_mix_interpolate(req: CodeMixInterpolateRequest) -> dict:
     """
     from gateway.modules.m1_pipeline.hinglish import code_mix_ratio
     from gateway.modules.m12_novel.gloss import HINGLISH_TO_EN, to_english_gloss
-    from gateway.tokenizer import TokenCounter
     from gateway.pricing import CHEAP_PER_1K_USD, PREMIUM_PER_1K_USD
+    from gateway.tokenizer import TokenCounter
 
     text = (req.text or "").strip()
     if not text:
@@ -532,10 +537,8 @@ async def code_mix_interpolate(req: CodeMixInterpolateRequest) -> dict:
         cost_cheap = round(n_tok * CHEAP_PER_1K_USD / 1000, 8)
         cost_prem = round(n_tok * PREMIUM_PER_1K_USD / 1000, 8)
         # Adaptive target for this variant
-        from gateway.modules.m12_novel.adaptive import target_kept_ratio
-
-        # Use scorer for difficulty
         from gateway.modules.m4_router.difficulty import DifficultyScorer
+        from gateway.modules.m12_novel.adaptive import target_kept_ratio
 
         scorer = DifficultyScorer(counter)
         diff = scorer.score(interp_text)

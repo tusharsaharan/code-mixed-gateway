@@ -83,8 +83,8 @@ async def _handle_tool(name: str, args: dict[str, Any]) -> str:
         text = args.get("text", "")
         tokenizer = args.get("tokenizer", "gpt4o_cl100k")
         from gateway.modules.m1_pipeline.tokenizer_bench import DEFAULT_TOKENIZERS
+        from gateway.pricing import PREMIUM_PER_1K_USD
         from gateway.tokenizer import TokenCounter
-        from gateway.pricing import CHEAP_PER_1K_USD, PREMIUM_PER_1K_USD
         fn = DEFAULT_TOKENIZERS.get(tokenizer) or DEFAULT_TOKENIZERS.get("whitespace")  # type: ignore
         n = max(1, fn(text)) if text.strip() else 0  # type: ignore
         counter = TokenCounter()
@@ -93,7 +93,7 @@ async def _handle_tool(name: str, args: dict[str, Any]) -> str:
         text = args.get("text", "")
         steps = int(args.get("steps", 5))
         from gateway.modules.m1_pipeline.hinglish import code_mix_ratio
-        from gateway.modules.m12_novel.gloss import to_english_gloss, HINGLISH_TO_EN
+        from gateway.modules.m12_novel.gloss import HINGLISH_TO_EN, to_english_gloss
         from gateway.tokenizer import TokenCounter
         tokens = text.split()
         hing_pos = [i for i, t in enumerate(tokens) if t.lower().strip(",.!?;:\"'()[]{}") in HINGLISH_TO_EN and HINGLISH_TO_EN[t.lower().strip(",.!?;:\"'()[]{}")] != ""]
