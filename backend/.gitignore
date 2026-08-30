@@ -16,4 +16,5 @@ data/*.sqlite-wal
 data/*.db
 data/hf_dataset/
 data/checkpoints/*.json
-data/eval_report.json
+# eval_report.json is now tracked (n=50) for reproducibility — regenerate via evaluate.py
+!data/benchmark.sample.jsonl
