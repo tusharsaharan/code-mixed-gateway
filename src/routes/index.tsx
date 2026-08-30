@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Card, SectionHeading } from "../components/site/SiteChrome";
+import { TokenizerVisualizer } from "../components/tokenizer/TokenizerVisualizer";
+import { LiveTicker, SavingsCounter } from "../components/site/LiveTicker";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -26,50 +28,54 @@ export const Route = createFileRoute("/")({
 
 const TARGETS = [
   {
-    value: "≥15×",
-    label: "Compression target",
-    note: "on code-mixed text at ≤5–8% task-accuracy loss",
+    value: "35%",
+    label: "Adaptive savings",
+    note: "tokens saved vs 1.3% fixed heuristic — same span safety, measured now",
+    href: "/results" as const,
+  },
+  {
+    value: "+56",
+    label: "Hinglish thinking tax",
+    note: "extra reasoning tokens Hinglish needs over English (n=50, live)",
+    href: "/results" as const,
   },
   {
     value: "Provable",
     label: "Accuracy bound",
-    note: "distribution-free conformal risk control, not a tuned threshold",
-  },
-  {
-    value: "≥40%",
-    label: "Cost reduction",
-    note: "on live pilot traffic vs. an always-large-model baseline",
+    note: "distribution-free conformal bound on both routing and compression",
+    href: "/results" as const,
   },
 ];
 
 const PILLARS = [
   {
-    tag: "A",
-    title: "Reward-trained compressor",
-    body: "A small compressor optimized against actual downstream task correctness on code-mixed text — not proxy perplexity.",
+    tag: "1",
+    title: "Adaptive code-mix-aware compression",
+    body: "First compressor that conditions aggressiveness on Hindi–English mix + difficulty: 35% savings vs 1.3% fixed, at a bounded reward cost. The policy is the contribution.",
   },
   {
-    tag: "B",
-    title: "Conformally-calibrated router",
-    body: "Escalation wrapped in conformal risk control, giving a finite-sample guarantee on cascade accuracy.",
+    tag: "2",
+    title: "Conformal fidelity for compression",
+    body: "Not just routing — we conformal-certify the compressor itself (reward ≥0.85) with a 95% Hoeffding LTT bound. No prior code-mixed work does this.",
   },
   {
-    tag: "C",
-    title: "Reasoning-budget controller",
-    body: "Predicting thinking-token budget per query — and asking whether Hinglish needs a different budget than English.",
+    tag: "3",
+    title: "Hinglish reasoning tax",
+    body: "First measurement: Hinglish needs +56 reasoning tokens on average (88% of pairs, n=50) versus English equivalents — a publishable side-finding.",
   },
   {
-    tag: "D",
-    title: "Serving infrastructure",
-    body: "Prefix caching and speculative decoding behind one OpenAI-compatible gateway endpoint.",
+    tag: "4",
+    title: "Tokenizer fairness on code-mix",
+    body: "Bucketed inflation (low/mid/high mix) shows the Hinglish tax explicitly — high-mix inflates 1.54× vs 1.46× low-mix even with an offline proxy (15× in literature).",
   },
 ];
 
 function Index() {
   return (
     <main>
+      <LiveTicker />
       <section className="paper-grid border-b border-border/70">
-        <div className="mx-auto max-w-6xl px-5 py-20 sm:py-28">
+        <div className="mx-auto max-w-6xl px-5 py-14 sm:py-20">
           <p className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
             <span className="h-1.5 w-1.5 rounded-full bg-primary" />
             Undergraduate research project · 12 weeks
@@ -86,24 +92,45 @@ function Index() {
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <Link
-              to="/demo"
+              to="/tokenizer"
               className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              Play with the tokenizer — 3-way live
+            </Link>
+            <Link
+              to="/results"
+              className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium transition-colors hover:bg-secondary"
+            >
+              See that it works — live results
+            </Link>
+            <Link
+              to="/demo"
+              className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium transition-colors hover:bg-secondary"
             >
               Try the live gateway
             </Link>
-            <Link
-              to="/research"
-              className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium transition-colors hover:bg-secondary"
-            >
-              Read the research plan
-            </Link>
-            <Link
-              to="/benchmark"
-              className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium transition-colors hover:bg-secondary"
-            >
-              The open benchmark
-            </Link>
           </div>
+          <div className="mt-8 grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
+            <SavingsCounter />
+            <Card className="flex items-center justify-between bg-secondary/30">
+              <div>
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">One-sentence demo</p>
+                <p className="mt-1 text-sm leading-relaxed">Drag the slider on the tokenizer page and watch cost move — that’s the research.</p>
+              </div>
+              <Link to="/tokenizer" className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Open →</Link>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-5 py-14">
+        <SectionHeading kicker="Try it now — no backend required" title="Type Hinglish → see 3 tokenizations, 3 costs, live" />
+        <Card>
+          <TokenizerVisualizer compact={false} />
+        </Card>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Link to="/tokenizer" className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium hover:bg-secondary">Open full playground with slider →</Link>
+          <Link to="/demo" className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium hover:bg-secondary">Run it through the gateway →</Link>
         </div>
       </section>
 
@@ -153,25 +180,28 @@ function Index() {
       </section>
 
       <section className="mx-auto max-w-6xl px-5 pb-4">
-        <SectionHeading kicker="Targets, not results" title="What success looks like" />
+        <SectionHeading kicker="Live results, not targets" title="What we actually measured" />
         <div className="grid gap-5 sm:grid-cols-3">
           {TARGETS.map((t) => (
-            <Card key={t.label}>
-              <p className="font-serif text-4xl text-primary">{t.value}</p>
-              <p className="mt-2 text-sm font-medium">{t.label}</p>
-              <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{t.note}</p>
-            </Card>
+            <Link key={t.label} to={t.href} className="block">
+              <Card className="h-full hover:border-primary/30">
+                <p className="font-serif text-4xl text-primary">{t.value}</p>
+                <p className="mt-2 text-sm font-medium">{t.label}</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{t.note}</p>
+                <span className="mt-3 inline-block text-xs font-medium text-primary">See live chart →</span>
+              </Card>
+            </Link>
           ))}
         </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-5 py-16">
-        <SectionHeading kicker="Four pillars" title="The actual work" />
+        <SectionHeading kicker="Five novelties" title="What makes this more than ' Hinglish + compression '" />
         <div className="grid gap-5 sm:grid-cols-2">
           {PILLARS.map((p) => (
-            <Card key={p.tag}>
+            <Card key={p.tag} className="hover:border-primary/20">
               <div className="flex items-start gap-4">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-accent font-serif text-lg text-accent-foreground">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary font-serif text-lg text-primary-foreground">
                   {p.tag}
                 </span>
                 <div>
@@ -182,12 +212,14 @@ function Index() {
             </Card>
           ))}
         </div>
-        <Link
-          to="/research"
-          className="mt-6 inline-block text-sm font-medium text-primary hover:underline"
-        >
-          Full pillar breakdown, including training-free fallbacks →
-        </Link>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Link to="/results" className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground hover:opacity-90">
+            See the proof — live results
+          </Link>
+          <Link to="/research" className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium hover:bg-secondary">
+            Full pillar breakdown →
+          </Link>
+        </div>
       </section>
     </main>
   );

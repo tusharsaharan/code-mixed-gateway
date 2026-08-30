@@ -14,8 +14,10 @@ import { Route as BenchmarkRouteImport } from './routes/benchmark'
 import { Route as DemoRouteImport } from './routes/demo'
 import { Route as PilotRouteImport } from './routes/pilot'
 import { Route as ResearchRouteImport } from './routes/research'
+import { Route as ResultsRouteImport } from './routes/results'
 import { Route as RoadmapRouteImport } from './routes/roadmap'
 import { Route as TeamRouteImport } from './routes/team'
+import { Route as TokenizerRouteImport } from './routes/tokenizer'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -42,6 +44,11 @@ const ResearchRoute = ResearchRouteImport.update({
   path: '/research',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ResultsRoute = ResultsRouteImport.update({
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RoadmapRoute = RoadmapRouteImport.update({
   id: '/roadmap',
   path: '/roadmap',
@@ -52,6 +59,11 @@ const TeamRoute = TeamRouteImport.update({
   path: '/team',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TokenizerRoute = TokenizerRouteImport.update({
+  id: '/tokenizer',
+  path: '/tokenizer',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -59,8 +71,10 @@ export interface FileRoutesByFullPath {
   '/demo': typeof DemoRoute
   '/pilot': typeof PilotRoute
   '/research': typeof ResearchRoute
+  '/results': typeof ResultsRoute
   '/roadmap': typeof RoadmapRoute
   '/team': typeof TeamRoute
+  '/tokenizer': typeof TokenizerRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -68,8 +82,10 @@ export interface FileRoutesByTo {
   '/demo': typeof DemoRoute
   '/pilot': typeof PilotRoute
   '/research': typeof ResearchRoute
+  '/results': typeof ResultsRoute
   '/roadmap': typeof RoadmapRoute
   '/team': typeof TeamRoute
+  '/tokenizer': typeof TokenizerRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -78,16 +94,34 @@ export interface FileRoutesById {
   '/demo': typeof DemoRoute
   '/pilot': typeof PilotRoute
   '/research': typeof ResearchRoute
+  '/results': typeof ResultsRoute
   '/roadmap': typeof RoadmapRoute
   '/team': typeof TeamRoute
+  '/tokenizer': typeof TokenizerRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/benchmark' | '/demo' | '/pilot' | '/research' | '/roadmap' | '/team'
+    | '/'
+    | '/benchmark'
+    | '/demo'
+    | '/pilot'
+    | '/research'
+    | '/results'
+    | '/roadmap'
+    | '/team'
+    | '/tokenizer'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/benchmark' | '/demo' | '/pilot' | '/research' | '/roadmap' | '/team'
+    | '/'
+    | '/benchmark'
+    | '/demo'
+    | '/pilot'
+    | '/research'
+    | '/results'
+    | '/roadmap'
+    | '/team'
+    | '/tokenizer'
   id:
     | '__root__'
     | '/'
@@ -95,8 +129,10 @@ export interface FileRouteTypes {
     | '/demo'
     | '/pilot'
     | '/research'
+    | '/results'
     | '/roadmap'
     | '/team'
+    | '/tokenizer'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -105,8 +141,10 @@ export interface RootRouteChildren {
   DemoRoute: typeof DemoRoute
   PilotRoute: typeof PilotRoute
   ResearchRoute: typeof ResearchRoute
+  ResultsRoute: typeof ResultsRoute
   RoadmapRoute: typeof RoadmapRoute
   TeamRoute: typeof TeamRoute
+  TokenizerRoute: typeof TokenizerRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -146,6 +184,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ResearchRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/results': {
+      id: '/results'
+      path: '/results'
+      fullPath: '/results'
+      preLoaderRoute: typeof ResultsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/roadmap': {
       id: '/roadmap'
       path: '/roadmap'
@@ -160,6 +205,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tokenizer': {
+      id: '/tokenizer'
+      path: '/tokenizer'
+      fullPath: '/tokenizer'
+      preLoaderRoute: typeof TokenizerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -169,8 +221,10 @@ const rootRouteChildren: RootRouteChildren = {
   DemoRoute: DemoRoute,
   PilotRoute: PilotRoute,
   ResearchRoute: ResearchRoute,
+  ResultsRoute: ResultsRoute,
   RoadmapRoute: RoadmapRoute,
   TeamRoute: TeamRoute,
+  TokenizerRoute: TokenizerRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

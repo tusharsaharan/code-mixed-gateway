@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, Page, SectionHeading } from "../components/site/SiteChrome";
+import { Shred } from "../components/anim/Shred";
+import { LiveTicker } from "../components/site/LiveTicker";
 import {
   GATEWAY_URL,
   type GatewayMeta,
@@ -45,7 +47,7 @@ const PRESETS = [
   },
 ] as const;
 
-const METHODS = ["auto", "heuristic", "distilled", "model"] as const;
+const METHODS = ["auto", "heuristic", "distilled", "adaptive", "model"] as const;
 
 function wordDiff(original: string, compressed: string) {
   const c = new Set(compressed.split(/\s+/));
@@ -191,6 +193,7 @@ function DemoPage() {
       title="Run a prompt through the gateway"
       lede="Compression, conformal routing and the answer happen live — tokens, tier and savings update as the gateway streams. Dry-run by default, real models when keys are set."
     >
+      <div className="-mx-6 -mt-12 mb-6"><LiveTicker /></div>
       {/* health banner */}
       <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm">
         <span
@@ -315,8 +318,11 @@ function DemoPage() {
           </div>
           <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
             <span className="font-medium text-foreground">auto</span> uses distilled if available,
-            else model when not dry-run, else heuristic. Protected spans (emails, phones, code,
-            amounts) are masked before compression and re-injected fail-closed.
+            else model when not dry-run, else heuristic.{" "}
+            <span className="font-medium text-foreground">adaptive</span> is code-mix-aware (novel): keeps more for Hinglish/math-heavy, compresses aggressively for light English. Protected spans are masked before compression and re-injected fail-closed ·{" "}
+            <a href="/results" className="font-medium text-primary hover:underline">
+              See results →
+            </a>
           </p>
           {error ? (
             <div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -356,24 +362,28 @@ function DemoPage() {
                   {compressRes.compressed || "—"}
                 </p>
               </div>
-              {diff && diff.removed.length > 0 ? (
-                <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                  Dropped:{" "}
-                  {diff.removed.slice(0, 12).map((w) => (
-                    <span
-                      key={w}
-                      className="mr-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100"
-                    >
-                      {w}
-                    </span>
-                  ))}
-                  {diff.removed.length > 12 ? ` +${diff.removed.length - 12} more` : ""}
-                </p>
-              ) : (
-                <p className="mt-3 text-xs text-muted-foreground">
-                  Nothing dropped — already minimal.
-                </p>
-              )}
+              <div className="mt-4 rounded-xl border border-border bg-card p-4">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Shred — watch filler fall</p>
+                <div className="mt-2 min-h-[28px]">
+                  <Shred original={compressRes.original} compressed={compressRes.compressed} active={!loading} />
+                </div>
+                {diff && diff.removed.length > 0 ? (
+                  <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                    Dropped:{" "}
+                    {diff.removed.slice(0, 12).map((w) => (
+                      <span
+                        key={w}
+                        className="mr-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100"
+                      >
+                        {w}
+                      </span>
+                    ))}
+                    {diff.removed.length > 12 ? ` +${diff.removed.length - 12} more` : ""}
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs text-muted-foreground">Nothing dropped — already minimal.</p>
+                )}
+              </div>
               <p className="mt-3 font-mono text-xs leading-relaxed text-muted-foreground">
                 Original: <span className="text-foreground">{compressRes.original}</span>
               </p>
