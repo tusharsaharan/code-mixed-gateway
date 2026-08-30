@@ -56,8 +56,6 @@ def adaptive_compress(
 
     # Conservative path: almost no compression, just hygiene
     if target > 0.82:
-        # Use passthrough/minimal: strip leading greeting only, keep fillers
-        masked, spans = comp.counter.count, None  # avoid linter
         from gateway.modules.m2_compressor.safety_span import mask, reinject
 
         masked_text, spans_list = mask(text)
@@ -105,7 +103,6 @@ def adaptive_compress(
 
     # Need to truncate to hit target kept ratio (aggressive case)
     tok_o = res.token_original
-    target_tokens = max(1, int(tok_o * target))
     # word-level truncation preserving order, but keep protected markers conceptually
     words = res.compressed.split()
     # Estimate word -> token approx 1:1 for truncation, then refine
@@ -136,7 +133,12 @@ def adaptive_compress(
     )
 
 
-def adaptive_compress_tagged(text: str, counter: TokenCounter | None = None, scorer: DifficultyScorer | None = None, compressor: Compressor | None = None) -> CompressResult:
+def adaptive_compress_tagged(  # noqa: E501
+    text: str,
+    counter: TokenCounter | None = None,
+    scorer: DifficultyScorer | None = None,
+    compressor: Compressor | None = None,
+) -> CompressResult:
     """Wrapper that tags method as 'adaptive' for reporting."""
     r = adaptive_compress(text, counter, scorer, compressor)
     # Re-tag so frontend can distinguish adaptive vs fixed

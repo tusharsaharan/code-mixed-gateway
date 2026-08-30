@@ -25,7 +25,6 @@ HINGLISH_TO_EN: dict[str, str] = {
     "ye": "this",
     "woh": "that",
     "vo": "that",
-    "yeh": "this",
     # questions
     "kya": "what",
     "kahan": "where",
@@ -49,7 +48,6 @@ HINGLISH_TO_EN: dict[str, str] = {
     "rha": "is",
     "nahi": "not",
     "nahin": "not",
-    "nahin": "not",
     "matlab": "means",
     "yaar": "friend",
     "bhai": "brother",
@@ -65,7 +63,6 @@ HINGLISH_TO_EN: dict[str, str] = {
     "karo": "do",
     "karna": "to do",
     "karun": "do",
-    "karna": "do",
     "batao": "tell",
     "bata": "tell",
     "bhejo": "send",

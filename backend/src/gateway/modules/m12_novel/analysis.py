@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import math
-from pathlib import Path
 from collections import Counter
+from pathlib import Path
 
 from gateway.modules.m1_pipeline.hinglish import code_mix_ratio
-from gateway.modules.m1_pipeline.tokenizer_bench import TokenizerBench, count_whitespace, count_char_proxy
+from gateway.modules.m1_pipeline.tokenizer_bench import TokenizerBench
 from gateway.modules.m2_compressor.compressor import Compressor
 from gateway.modules.m4_router.difficulty import DifficultyScorer
 from gateway.modules.m9_reasoning.budget import ReasoningBudgetEstimator
@@ -18,7 +18,7 @@ from gateway.tokenizer import TokenCounter
 def _load_benchmark(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def _bucket_label(cm: float) -> str:
@@ -36,7 +36,6 @@ def tokenizer_tax_report(data_dir: Path) -> dict:
     an English-only control set via deterministic gloss to fill low bucket and
     make the Hinglish tax visible as char4_proxy vs gpt4o divergence.
     """
-    from gateway.modules.m1_pipeline.pipeline import iter_jsonl, normalize
     from gateway.schemas import PromptRecord
 
     seed_path = data_dir / "seed_hinglish.jsonl"
@@ -84,9 +83,6 @@ def tokenizer_tax_report(data_dir: Path) -> dict:
         inf = bench_obj.inflation(members) if members else {}
         # char4_proxy inflation vs gpt4o is the visible Hinglish tax (byte-level)
         char4 = inf.get("char4_proxy", 1.0)
-        # tokens per char for display
-        sample_texts = [m.text if hasattr(m, "text") else str(m) for m in members[:5]]
-        tpc = sum(len((t).encode("utf-8")) / max(1, len(t)) for t in sample_texts) / max(1, len(sample_texts))
         bucket_rows.append(
             {
                 "bucket": label,
@@ -299,7 +295,6 @@ def conformal_compression_report(benchmark_path: Path) -> dict:
                 fails += 1
         risk_hat = fails / n if n else 0
         # Hoeffding bound correction as in conformal.py (grid 200, delta 0.05)
-        import math
 
         _GRID = 200
         delta = 0.05
