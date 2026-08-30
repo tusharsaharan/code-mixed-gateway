@@ -257,6 +257,84 @@ async def compress_endpoint(req: CompressRequest) -> dict:
         res = gw.compressor.compress_distilled(text)
     elif method == "model":
         res = await gw.compressor.compress_model(text)
+    elif method == "adaptive":
+        # Mixture-aware adaptive (novel)
+        from gateway.modules.m1_pipeline.hinglish import code_mix_ratio as _cm
+        from gateway.modules.m12_novel.adaptive import target_kept_ratio as _tgt
+
+        score = gw.router.scorer.score(text)
+        cm = _cm(text)
+        tgt = _tgt(cm, score)
+        # Reuse novel adaptive logic (import to avoid circular)
+        import re as _re
+        from gateway.modules.m2_compressor.safety_span import mask as _mask, reinject as _reinject
+
+        _GREET = _re.compile(r"^(hi|hello|hey|namaste|namaskar|hii+|yo|sir|madam|bro|dost)[\s,!.]+", _re.IGNORECASE)
+        _WS2 = _re.compile(r"\s+")
+        if tgt > 0.82:
+            masked, spans = _mask(text)
+            cleaned = _GREET.sub("", masked).strip()
+            cleaned = _WS2.sub(" ", cleaned) if cleaned else masked
+            final, ok = _reinject(cleaned, spans)
+            if not ok:
+                final = text
+            from gateway.schemas import CompressResult as _CR
+
+            tok_o = gw.counter.count(text)
+            tok_c = gw.counter.count(final)
+            res = _CR(
+                original=text,
+                compressed=final,
+                spans=spans,
+                token_original=tok_o,
+                token_compressed=max(1, tok_c),
+                ratio=round(max(1, tok_c) / max(1, tok_o), 6),
+                method="heuristic",
+            )
+            d = res.model_dump()
+            d["method"] = "adaptive"
+            d["adaptive_target"] = tgt
+            d["code_mix_ratio"] = cm
+            d["difficulty"] = score
+            return d
+        # else use heuristic+truncate adaptive path
+        base = gw.compressor.compress_heuristic(text)
+        if base.ratio <= tgt + 0.02:
+            d = base.model_dump()
+            d["method"] = "adaptive"
+            d["adaptive_target"] = tgt
+            d["code_mix_ratio"] = cm
+            d["difficulty"] = score
+            return d
+        words = base.compressed.split()
+        keep = max(3, int(len(words) * (tgt / max(base.ratio, 0.01))))
+        keep = min(len(words), keep)
+        trunc = " ".join(words[:keep])
+        if any(sp.text not in trunc for sp in base.spans):
+            d = base.model_dump()
+            d["method"] = "adaptive"
+            d["adaptive_target"] = tgt
+            d["code_mix_ratio"] = cm
+            d["difficulty"] = score
+            return d
+        from gateway.schemas import CompressResult as _CR2
+
+        tok_c = gw.counter.count(trunc)
+        res2 = _CR2(
+            original=text,
+            compressed=trunc,
+            spans=base.spans,
+            token_original=base.token_original,
+            token_compressed=max(1, tok_c),
+            ratio=round(max(1, tok_c) / max(1, base.token_original), 6),
+            method="heuristic",
+        )
+        d = res2.model_dump()
+        d["method"] = "adaptive"
+        d["adaptive_target"] = tgt
+        d["code_mix_ratio"] = cm
+        d["difficulty"] = score
+        return d
     else:
         res = await gw.compressor.compress(text)
     return res.model_dump()
@@ -265,9 +343,9 @@ async def compress_endpoint(req: CompressRequest) -> dict:
 @app.get("/v1/compress/methods")
 async def compress_methods() -> dict:
     return {
-        "methods": ["heuristic", "distilled", "model", "auto"],
+        "methods": ["heuristic", "distilled", "model", "adaptive", "auto"],
         "default": "auto",
-        "notes": "auto uses distilled if available, else model when not dry_run, else heuristic",
+        "notes": "auto uses distilled if available, else model when not dry_run, else heuristic; adaptive is code-mix-aware (novel)",
     }
 
 
@@ -296,6 +374,193 @@ async def reasoning_budget(req: ReasoningBudgetRequest) -> dict:
 async def reasoning_compare(hinglish: str, english: str) -> dict:
     gw = gateway()
     return gw.budget_comparator.compare(hinglish, english)
+
+
+@app.get("/v1/tokenizer/encode")
+async def tokenizer_encode(text: str, tokenizer: str = "gpt4o_cl100k") -> dict:
+    """Live encode for visualizer — returns token count, tokens per char, and chip texts.
+
+    Supports: gpt4o_cl100k (tiktoken if installed else whitespace), whitespace, char4_proxy,
+    and any HF tokenizer listed in tokenizer_bench.HF_TOKENIZER_SPECS (lazy-loaded).
+    """
+    from gateway.tokenizer import TokenCounter
+    from gateway.modules.m1_pipeline.tokenizer_bench import DEFAULT_TOKENIZERS
+    from gateway.pricing import CHEAP_PER_1K_USD, PREMIUM_PER_1K_USD
+
+    tok = tokenizer.strip()
+    fn = DEFAULT_TOKENIZERS.get(tok)
+    counter = TokenCounter()
+    # Fallback to whitespace if unknown
+    if fn is None:
+        fn = DEFAULT_TOKENIZERS.get("whitespace")  # type: ignore
+        tok = "whitespace"
+    n = max(1, fn(text)) if text.strip() else 0
+    # Backend truth for cost (always cl100k if available else whitespace)
+    backend_tokens = counter.count(text)
+    chars = len(text)
+    tpc = round(n / max(1, chars), 6) if text else 0
+    # Build chips only for small texts (avoid large payloads)
+    chips: list[dict] = []
+    if text and len(text) < 600:
+        # Try to get per-token strings if tokenizer is tiktoken-like
+        try:
+            import tiktoken
+
+            if tok == "gpt4o_cl100k":
+                enc = tiktoken.get_encoding("cl100k_base")
+                ids = enc.encode(text)
+                for i, tid in enumerate(ids[:80]):
+                    try:
+                        piece = enc.decode([tid])
+                    except Exception:
+                        piece = ""
+                    chips.append({"id": i, "token": int(tid), "text": piece})
+        except Exception:
+            # Fallback: word chips
+            words = text.split()
+            for i, w in enumerate(words[:40]):
+                chips.append({"id": i, "token": i, "text": w})
+    return {
+        "text": text,
+        "tokenizer": tok,
+        "tokens": n,
+        "chars": chars,
+        "tokens_per_char": tpc,
+        "backend_tokens": backend_tokens,
+        "backend": counter.backend,
+        "cost_cheap_usd": round(n * CHEAP_PER_1K_USD / 1000, 8),
+        "cost_premium_usd": round(n * PREMIUM_PER_1K_USD / 1000, 8),
+        "chips": chips,
+        "pricing_date": get_settings().pricing_date,
+    }
+
+
+@app.post("/v1/tokenizer/encode_batch")
+async def tokenizer_encode_batch(payload: dict) -> dict:
+    texts: list[str] = payload.get("texts") or []
+    tokenizer: str = payload.get("tokenizer") or "gpt4o_cl100k"
+    from gateway.modules.m1_pipeline.tokenizer_bench import DEFAULT_TOKENIZERS
+    from gateway.pricing import CHEAP_PER_1K_USD, PREMIUM_PER_1K_USD
+
+    fn = DEFAULT_TOKENIZERS.get(tokenizer) or DEFAULT_TOKENIZERS.get("whitespace")  # type: ignore
+    out = []
+    for t in texts[:12]:
+        n = max(1, fn(t)) if t.strip() else 0
+        out.append(
+            {
+                "text": t[:120],
+                "tokens": n,
+                "cost_premium_usd": round(n * PREMIUM_PER_1K_USD / 1000, 8),
+                "cost_cheap_usd": round(n * CHEAP_PER_1K_USD / 1000, 8),
+            }
+        )
+    return {"results": out, "tokenizer": tokenizer, "pricing_date": get_settings().pricing_date}
+
+
+class CodeMixInterpolateRequest(BaseModel):
+    text: str
+    steps: int = 5
+
+
+@app.post("/v1/code_mix/interpolate")
+async def code_mix_interpolate(req: CodeMixInterpolateRequest) -> dict:
+    """Interpolate a sentence between Hinglish (0) and English (1) for the code-switch slider.
+
+    Generates `steps` variants where level=0 keeps original Hinglish, level=1 is full
+    English gloss, and intermediate levels replace a proportion of Hinglish tokens.
+    Each variant is annotated with code_mix, tokens, cost, adaptive target, and compression preview.
+    """
+    from gateway.modules.m1_pipeline.hinglish import code_mix_ratio
+    from gateway.modules.m12_novel.gloss import HINGLISH_TO_EN, to_english_gloss
+    from gateway.tokenizer import TokenCounter
+    from gateway.pricing import CHEAP_PER_1K_USD, PREMIUM_PER_1K_USD
+
+    text = (req.text or "").strip()
+    if not text:
+        raise ValueError("text required")
+    steps = max(2, min(7, req.steps or 5))
+    # Build reverse map for debugging but interpolate via gloss proportion
+    # Generate intermediate texts by progressively applying gloss
+    variants: list[dict] = []
+    counter = TokenCounter()
+    # Identify hinglish token positions in original
+    tokens = text.split()
+    hinglish_positions = []
+    for idx, tok in enumerate(tokens):
+        low = tok.lower().strip(",.!?;:\"'()[]{}")
+        if low in HINGLISH_TO_EN and HINGLISH_TO_EN[low] != "":
+            hinglish_positions.append(idx)
+    # Also include particles that would be dropped
+    n_hing = len(hinglish_positions) or 1
+    for s in range(steps):
+        level = s / (steps - 1) if steps > 1 else 0
+        # Number to replace at this level
+        n_replace = int(round(level * n_hing))
+        # Deterministic: replace first n_replace positions
+        replace_set = set(hinglish_positions[:n_replace])
+        if level >= 0.99:
+            interp_text = to_english_gloss(text)
+        elif level <= 0.01:
+            interp_text = text
+        else:
+            # Build intermediate by selectively replacing
+            out_tokens: list[str] = []
+            for idx, tok in enumerate(tokens):
+                if idx in replace_set:
+                    low = tok.lower().strip(",.!?;:\"'()[]{}")
+                    # preserve punctuation
+                    m = __import__("re").match(r"^([A-Za-z]+)([.,!?;:]*)$", tok)
+                    if m:
+                        core, punct = m.group(1), m.group(2)
+                        eng = HINGLISH_TO_EN.get(core.lower(), core)
+                        if eng == "":
+                            continue
+                        if core[0].isupper():
+                            eng = eng.capitalize()
+                        out_tokens.append(eng + punct)
+                    else:
+                        eng = HINGLISH_TO_EN.get(low, tok)
+                        if eng == "":
+                            continue
+                        out_tokens.append(eng)
+                else:
+                    out_tokens.append(tok)
+            interp_text = " ".join(out_tokens)
+            interp_text = __import__("re").sub(r"\s+", " ", interp_text).strip()
+        cm = code_mix_ratio(interp_text)
+        n_tok = counter.count(interp_text)
+        cost_cheap = round(n_tok * CHEAP_PER_1K_USD / 1000, 8)
+        cost_prem = round(n_tok * PREMIUM_PER_1K_USD / 1000, 8)
+        # Adaptive target for this variant
+        from gateway.modules.m12_novel.adaptive import target_kept_ratio
+
+        # Use scorer for difficulty
+        from gateway.modules.m4_router.difficulty import DifficultyScorer
+
+        scorer = DifficultyScorer(counter)
+        diff = scorer.score(interp_text)
+        tgt = target_kept_ratio(cm, diff)
+        # Compression preview (heuristic ratio)
+        from gateway.modules.m2_compressor.compressor import Compressor
+
+        comp = Compressor(counter)
+        h = comp.compress_heuristic(interp_text)
+        variants.append(
+            {
+                "level": round(level, 3),
+                "text": interp_text,
+                "code_mix_ratio": cm,
+                "tokens": n_tok,
+                "tokens_per_char": round(n_tok / max(1, len(interp_text)), 4),
+                "cost_cheap_usd": cost_cheap,
+                "cost_premium_usd": cost_prem,
+                "difficulty": diff,
+                "adaptive_target": tgt,
+                "heuristic_kept_ratio": h.ratio,
+                "heuristic_compressed": h.compressed,
+            }
+        )
+    return {"original": text, "steps": steps, "variants": variants, "pricing_date": get_settings().pricing_date}
 
 
 @app.get("/v1/tokenizer/report")
@@ -368,6 +633,24 @@ async def eval_summary() -> dict:
         records, pricing_date=s.pricing_date
     )
     return summary.model_dump()
+
+
+@app.get("/v1/eval/novel")
+async def eval_novel() -> dict:
+    """Novel analyses: adaptive vs fixed, tokenizer tax, Hinglish-En delta, conformal compression."""
+    from gateway.modules.m12_novel.analysis import build_novel_report
+
+    s = get_settings()
+    return build_novel_report(s.data_dir)
+
+
+@app.get("/v1/eval/novel/summary")
+async def eval_novel_summary() -> dict:
+    from gateway.modules.m12_novel.analysis import build_novel_report
+
+    s = get_settings()
+    r = build_novel_report(s.data_dir)
+    return {"summary_bullets": r["summary_bullets"], "n_benchmark": r["n_benchmark"], "generated_at": r["generated_at"]}
 
 
 @app.get("/v1/calibration/metrics")

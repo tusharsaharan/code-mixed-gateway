@@ -104,6 +104,8 @@ export interface CalibrationMetrics {
   reliability: { bin: number; accuracy: number; confidence: number; count: number }[];
   is_real?: boolean;
   real_path?: string;
+  bench_n?: number;
+  pad_n?: number;
 }
 
 export async function fetchCalibrationMetrics(): Promise<CalibrationMetrics> {
@@ -157,6 +159,108 @@ export async function fetchHealth(): Promise<Record<string, unknown>> {
   const res = await fetchWithTimeout(`${GATEWAY_URL}/healthz`);
   if (!res.ok) throw new Error(`Health ${res.status}: ${await res.text()}`);
   return (await res.json()) as Record<string, unknown>;
+}
+
+export interface NovelReport {
+  n_benchmark: number;
+  tokenizer_tax: {
+    buckets: { bucket: string; n: number; avg_code_mix: number; char4_inflation: number; inflation: Record<string, number> }[];
+    overall: Record<string, number>;
+    hinglish_tax_ratio: number;
+    n_controls: number;
+  };
+  adaptive: {
+    n: number;
+    methods: { method: string; avg_kept_pct: number; avg_kept_ratio: number; avg_reward: number; avg_savings: number; is_adaptive: boolean }[];
+  };
+  reasoning_delta: {
+    n_pairs: number;
+    mean_delta: number;
+    median_delta: number;
+    hinglish_higher_pct: number;
+    max_delta: number;
+    min_delta: number;
+    histogram: { delta: number; count: number }[];
+    top_hinglish_heavier: { id: string; original: string; gloss: string; delta: number }[];
+    items: unknown[];
+  };
+  conformal_compression: {
+    threshold_reward: number;
+    heuristic: { risk_hat: number; risk_bound: number; failures: number; n: number };
+    distilled: { risk_hat: number; risk_bound: number; failures: number; n: number };
+    adaptive: { risk_hat: number; risk_bound: number; failures: number; n: number };
+    best_method: string;
+  };
+  summary_bullets: string[];
+  generated_at: string;
+}
+
+export async function fetchNovel(): Promise<NovelReport> {
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/eval/novel`);
+  if (!res.ok) throw new Error(`Novel ${res.status}: ${await res.text()}`);
+  return (await res.json()) as NovelReport;
+}
+
+export async function compressAdaptive(text: string): Promise<CompressResponse & { adaptive_target?: number; code_mix_ratio?: number; difficulty?: number }> {
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/compress`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, method: "adaptive" }),
+  });
+  if (!res.ok) throw new Error(`Adaptive ${res.status}: ${await res.text()}`);
+  return (await res.json()) as CompressResponse & { adaptive_target?: number; code_mix_ratio?: number; difficulty?: number };
+}
+
+export interface TokenEncodeResp {
+  text: string;
+  tokenizer: string;
+  tokens: number;
+  chars: number;
+  tokens_per_char: number;
+  backend: string;
+  cost_cheap_usd: number;
+  cost_premium_usd: number;
+  chips: { id: number; token: number; text: string }[];
+  pricing_date: string;
+}
+
+export async function fetchTokenEncode(text: string, tokenizer = "gpt4o_cl100k"): Promise<TokenEncodeResp> {
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/tokenizer/encode?text=${encodeURIComponent(text)}&tokenizer=${tokenizer}`);
+  if (!res.ok) throw new Error(`Encode ${res.status}: ${await res.text()}`);
+  return (await res.json()) as TokenEncodeResp;
+}
+
+export async function fetchTokenBatch(texts: string[], tokenizer = "gpt4o_cl100k"): Promise<{ results: { text: string; tokens: number; cost_premium_usd: number }[] }> {
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/tokenizer/encode_batch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ texts, tokenizer }),
+  });
+  if (!res.ok) throw new Error(`Batch ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { results: { text: string; tokens: number; cost_premium_usd: number }[] };
+}
+
+export interface InterpolateVariant {
+  level: number;
+  text: string;
+  code_mix_ratio: number;
+  tokens: number;
+  tokens_per_char: number;
+  cost_cheap_usd: number;
+  cost_premium_usd: number;
+  difficulty: number;
+  adaptive_target: number;
+  heuristic_kept_ratio: number;
+  heuristic_compressed: string;
+}
+export async function fetchInterpolate(text: string, steps = 5): Promise<{ original: string; variants: InterpolateVariant[] }> {
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/code_mix/interpolate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, steps }),
+  });
+  if (!res.ok) throw new Error(`Interpolate ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { original: string; variants: InterpolateVariant[] };
 }
 
 export async function* streamChatCompletion(

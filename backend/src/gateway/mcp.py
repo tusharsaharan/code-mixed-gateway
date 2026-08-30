@@ -79,6 +79,54 @@ async def _handle_tool(name: str, args: dict[str, Any]) -> str:
         records = iter_jsonl(s.data_dir / "seed_hinglish.jsonl")
         bench = TokenizerBench()
         return json.dumps({"n": len(records), "inflation": bench.inflation(records) if records else {}}, indent=2)
+    if name == "tokenizer_encode":
+        text = args.get("text", "")
+        tokenizer = args.get("tokenizer", "gpt4o_cl100k")
+        from gateway.modules.m1_pipeline.tokenizer_bench import DEFAULT_TOKENIZERS
+        from gateway.tokenizer import TokenCounter
+        from gateway.pricing import CHEAP_PER_1K_USD, PREMIUM_PER_1K_USD
+        fn = DEFAULT_TOKENIZERS.get(tokenizer) or DEFAULT_TOKENIZERS.get("whitespace")  # type: ignore
+        n = max(1, fn(text)) if text.strip() else 0  # type: ignore
+        counter = TokenCounter()
+        return json.dumps({"text": text, "tokenizer": tokenizer, "tokens": n, "chars": len(text), "tokens_per_char": round(n / max(1, len(text)), 6), "backend": counter.backend, "cost_premium_usd": round(n * PREMIUM_PER_1K_USD / 1000, 8)}, indent=2, ensure_ascii=False)
+    if name == "code_mix_interpolate":
+        text = args.get("text", "")
+        steps = int(args.get("steps", 5))
+        from gateway.modules.m1_pipeline.hinglish import code_mix_ratio
+        from gateway.modules.m12_novel.gloss import to_english_gloss, HINGLISH_TO_EN
+        from gateway.tokenizer import TokenCounter
+        tokens = text.split()
+        hing_pos = [i for i, t in enumerate(tokens) if t.lower().strip(",.!?;:\"'()[]{}") in HINGLISH_TO_EN and HINGLISH_TO_EN[t.lower().strip(",.!?;:\"'()[]{}")] != ""]
+        n_hing = len(hing_pos) or 1
+        variants = []
+        counter = TokenCounter()
+        for s_idx in range(max(2, min(7, steps))):
+            level = s_idx / (max(2, min(7, steps)) - 1)
+            if level >= 0.99:
+                interp = to_english_gloss(text)
+            elif level <= 0.01:
+                interp = text
+            else:
+                n_replace = int(round(level * n_hing))
+                rep = set(hing_pos[:n_replace])
+                out = []
+                for idx, tok in enumerate(tokens):
+                    if idx in rep:
+                        low = tok.lower().strip(",.!?;:\"'()[]{}")
+                        eng = HINGLISH_TO_EN.get(low, tok)
+                        if eng == "":
+                            continue
+                        out.append(eng)
+                    else:
+                        out.append(tok)
+                interp = " ".join(out)
+            variants.append({"level": round(level, 3), "text": interp, "code_mix_ratio": code_mix_ratio(interp), "tokens": counter.count(interp)})
+        return json.dumps({"original": text, "variants": variants}, indent=2, ensure_ascii=False)
+    if name == "novel_report":
+        from gateway.config import get_settings
+        from gateway.modules.m12_novel.analysis import build_novel_report
+        s = get_settings()
+        return json.dumps(build_novel_report(s.data_dir), indent=2, ensure_ascii=False)
     if name == "dashboard_stats":
         from gateway.config import get_settings
         from gateway.modules.m6_telegram.db import LogDB
@@ -97,11 +145,14 @@ if HAS_MCP:
     async def list_tools() -> list[Tool]:  # type: ignore
         return [
             Tool(name="healthz", description="Gateway health + dry_run flag", inputSchema={"type": "object", "properties": {}}),
-            Tool(name="compress", description="Compress Hinglish text (heuristic/distilled/auto)", inputSchema={"type": "object", "properties": {"text": {"type": "string"}, "method": {"type": "string", "enum": ["heuristic", "distilled", "auto"]}}, "required": ["text"]}),
+            Tool(name="compress", description="Compress Hinglish text (heuristic/distilled/adaptive/auto)", inputSchema={"type": "object", "properties": {"text": {"type": "string"}, "method": {"type": "string", "enum": ["heuristic", "distilled", "adaptive", "auto"]}}, "required": ["text"]}),
             Tool(name="chat", description="Run a prompt through the full gateway (compress+route)", inputSchema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}),
             Tool(name="reasoning_budget", description="Estimate reasoning budget for a Hinglish query", inputSchema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}),
             Tool(name="compare_budgets", description="Compare Hinglish vs English reasoning budgets", inputSchema={"type": "object", "properties": {"hinglish": {"type": "string"}, "english": {"type": "string"}}, "required": ["hinglish", "english"]}),
             Tool(name="tokenizer_report", description="Tokenizer inflation report vs gpt4o baseline", inputSchema={"type": "object", "properties": {}}),
+            Tool(name="tokenizer_encode", description="Live token encode (gpt4o/whitespace/char4_proxy) with chips & cost", inputSchema={"type": "object", "properties": {"text": {"type": "string"}, "tokenizer": {"type": "string", "enum": ["gpt4o_cl100k", "whitespace", "char4_proxy"]}}, "required": ["text"]}),
+            Tool(name="code_mix_interpolate", description="Interpolate Hinglish→English slider variants (5 levels) for code-switch visualizer", inputSchema={"type": "object", "properties": {"text": {"type": "string"}, "steps": {"type": "integer", "minimum": 2, "maximum": 7}}, "required": ["text"]}),
+            Tool(name="novel_report", description="Full Hinglish novel report: adaptive vs fixed, tokenizer tax, reasoning delta, conformal bounds", inputSchema={"type": "object", "properties": {}}),
             Tool(name="dashboard_stats", description="Live pilot dashboard stats", inputSchema={"type": "object", "properties": {}}),
         ]
 
