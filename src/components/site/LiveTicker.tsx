@@ -2,7 +2,14 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { fetchRecent, type DashboardStats, fetchDashboardStats } from "../../lib/gateway";
 
-type RecentRow = { user_id?: string; original_tokens?: number; compressed_tokens?: number; model_routed?: string; estimated_cost_savings?: number; timestamp?: string };
+type RecentRow = {
+  user_id?: string;
+  original_tokens?: number;
+  compressed_tokens?: number;
+  model_routed?: string;
+  estimated_cost_savings?: number;
+  timestamp?: string;
+};
 
 export function LiveTicker({ className = "" }: { className?: string }) {
   const [rows, setRows] = useState<RecentRow[]>([]);
@@ -19,26 +26,50 @@ export function LiveTicker({ className = "" }: { className?: string }) {
         if (cancelled) return;
         setRows((r as RecentRow[]).slice(0, 12));
         if (s) setStats(s as DashboardStats);
-      } catch {}
+      } catch {
+        // gateway offline — ticker falls back to placeholder items
+      }
     };
     load();
     const id = setInterval(load, 6000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, []);
 
   if (rows.length === 0 && !stats) return null;
 
-  const items = rows.length ? rows : [
-    { original_tokens: 18, compressed_tokens: 12, model_routed: "llama-3.1-8b-instant", estimated_cost_savings: 0.0031 },
-    { original_tokens: 22, compressed_tokens: 14, model_routed: "gpt-4o", estimated_cost_savings: 0.0042 },
-  ];
+  const items = rows.length
+    ? rows
+    : [
+        {
+          original_tokens: 18,
+          compressed_tokens: 12,
+          model_routed: "llama-3.1-8b-instant",
+          estimated_cost_savings: 0.0031,
+        },
+        {
+          original_tokens: 22,
+          compressed_tokens: 14,
+          model_routed: "gpt-4o",
+          estimated_cost_savings: 0.0042,
+        },
+      ];
 
   return (
-    <div className={`overflow-hidden border-y border-border/70 bg-secondary/40 ${className}`} aria-live="polite">
+    <div
+      className={`overflow-hidden border-y border-border/70 bg-secondary/40 ${className}`}
+      aria-live="polite"
+    >
       <div className="flex items-center gap-2 px-3 py-2 text-xs">
-        <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 font-medium text-primary-foreground">LIVE</span>
+        <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 font-medium text-primary-foreground">
+          LIVE
+        </span>
         <span className="hidden shrink-0 text-muted-foreground sm:inline">
-          {stats ? `${stats.queries.toLocaleString()} queries · $${stats.total_cost_savings_usd.toFixed(4)} saved` : "live queries"}
+          {stats
+            ? `${stats.queries.toLocaleString()} queries · $${stats.total_cost_savings_usd.toFixed(4)} saved`
+            : "live queries"}
         </span>
         <div className="relative flex-1 overflow-hidden">
           <motion.div
@@ -47,11 +78,21 @@ export function LiveTicker({ className = "" }: { className?: string }) {
             transition={{ duration: 28, repeat: Infinity, ease: "linear" }}
           >
             {[...items, ...items].map((r, i) => (
-              <span key={i} className="inline-flex items-center gap-2 font-mono text-xs text-muted-foreground">
+              <span
+                key={i}
+                className="inline-flex items-center gap-2 font-mono text-xs text-muted-foreground"
+              >
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 {r.original_tokens ?? "—"}→{r.compressed_tokens ?? "—"} tok
-                <span className="rounded bg-card border border-border px-1.5 py-0.5">{(r.model_routed ?? "—").slice(0, 18)}</span>
-                <span className="text-primary">saved ${typeof r.estimated_cost_savings === "number" ? r.estimated_cost_savings.toFixed(4) : "0.003"}</span>
+                <span className="rounded bg-card border border-border px-1.5 py-0.5">
+                  {(r.model_routed ?? "—").slice(0, 18)}
+                </span>
+                <span className="text-primary">
+                  saved $
+                  {typeof r.estimated_cost_savings === "number"
+                    ? r.estimated_cost_savings.toFixed(4)
+                    : "0.003"}
+                </span>
                 <span className="opacity-60">· just now</span>
               </span>
             ))}
@@ -74,11 +115,16 @@ export function SavingsCounter({ compact = false }: { compact?: boolean }) {
         const s = await fetchDashboardStats();
         if (cancelled) return;
         setStats(s);
-      } catch {}
+      } catch {
+        // gateway offline — counter keeps last value
+      }
     };
     load();
     const id = setInterval(load, 8000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, []);
 
   useEffect(() => {
@@ -105,21 +151,34 @@ export function SavingsCounter({ compact = false }: { compact?: boolean }) {
   if (!stats && displayUsd === 0) {
     return (
       <div className={`rounded-2xl border border-border bg-card p-5 ${compact ? "py-4" : ""}`}>
-        <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Running savings counter</p>
-        <p className="mt-1 font-serif text-2xl text-primary tracking-tight">$0.0042 <span className="text-sm text-muted-foreground">· ₹0.35</span></p>
+        <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+          Running savings counter
+        </p>
+        <p className="mt-1 font-serif text-2xl text-primary tracking-tight">
+          $0.0042 <span className="text-sm text-muted-foreground">· ₹0.35</span>
+        </p>
         <p className="mt-1 text-xs text-muted-foreground">live from gateway · demo ticker</p>
       </div>
     );
   }
 
   return (
-    <div className={`rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-soft)] ${compact ? "py-4" : ""}`}>
-      <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Running savings counter — live</p>
+    <div
+      className={`rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-soft)] ${compact ? "py-4" : ""}`}
+    >
+      <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+        Running savings counter — live
+      </p>
       <p className="mt-1 font-serif text-3xl tracking-tight text-primary">
-        ${displayUsd.toFixed(4)} <span className="text-xl text-muted-foreground">· ₹{displayInr.toFixed(2)}</span>
+        ${displayUsd.toFixed(4)}{" "}
+        <span className="text-xl text-muted-foreground">· ₹{displayInr.toFixed(2)}</span>
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
-        {stats?.queries ?? 0} queries · {stats ? (stats.total_original_tokens - stats.total_compressed_tokens).toLocaleString() : "—"} tokens saved · ticking live
+        {stats?.queries ?? 0} queries ·{" "}
+        {stats
+          ? (stats.total_original_tokens - stats.total_compressed_tokens).toLocaleString()
+          : "—"}{" "}
+        tokens saved · ticking live
       </p>
     </div>
   );

@@ -13,7 +13,10 @@ async function getEnc() {
         // js-tiktoken exports `encodingForModel` and `getEncoding`
         const { getEncoding } = m as unknown as { getEncoding: (name: string) => unknown };
         try {
-          const e = getEncoding("cl100k_base") as { encode: (s: string) => number[]; decode: (t: number[]) => string };
+          const e = getEncoding("cl100k_base") as {
+            encode: (s: string) => number[];
+            decode: (t: number[]) => string;
+          };
           enc = e;
         } catch {
           enc = null;
@@ -37,7 +40,9 @@ export async function countTokensCl100k(text: string): Promise<number> {
   }
 }
 
-export async function tokenChips(text: string): Promise<{ id: number; text: string; token: number }[]> {
+export async function tokenChips(
+  text: string,
+): Promise<{ id: number; text: string; token: number }[]> {
   const e = await getEnc();
   if (!e) {
     const words = text.split(/(\s+)/);

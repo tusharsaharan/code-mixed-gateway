@@ -193,7 +193,9 @@ function DemoPage() {
       title="Run a prompt through the gateway"
       lede="Compression, conformal routing and the answer happen live — tokens, tier and savings update as the gateway streams. Dry-run by default, real models when keys are set."
     >
-      <div className="-mx-6 -mt-12 mb-6"><LiveTicker /></div>
+      <div className="-mx-6 -mt-12 mb-6">
+        <LiveTicker />
+      </div>
       {/* health banner */}
       <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm">
         <span
@@ -319,7 +321,9 @@ function DemoPage() {
           <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
             <span className="font-medium text-foreground">auto</span> uses distilled if available,
             else model when not dry-run, else heuristic.{" "}
-            <span className="font-medium text-foreground">adaptive</span> is code-mix-aware (novel): keeps more for Hinglish/math-heavy, compresses aggressively for light English. Protected spans are masked before compression and re-injected fail-closed ·{" "}
+            <span className="font-medium text-foreground">adaptive</span> is code-mix-aware (novel):
+            keeps more for Hinglish/math-heavy, compresses aggressively for light English. Protected
+            spans are masked before compression and re-injected fail-closed ·{" "}
             <a href="/results" className="font-medium text-primary hover:underline">
               See results →
             </a>
@@ -363,9 +367,15 @@ function DemoPage() {
                 </p>
               </div>
               <div className="mt-4 rounded-xl border border-border bg-card p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Shred — watch filler fall</p>
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                  Shred — watch filler fall
+                </p>
                 <div className="mt-2 min-h-[28px]">
-                  <Shred original={compressRes.original} compressed={compressRes.compressed} active={!loading} />
+                  <Shred
+                    original={compressRes.original}
+                    compressed={compressRes.compressed}
+                    active={!loading}
+                  />
                 </div>
                 {diff && diff.removed.length > 0 ? (
                   <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
@@ -381,7 +391,9 @@ function DemoPage() {
                     {diff.removed.length > 12 ? ` +${diff.removed.length - 12} more` : ""}
                   </p>
                 ) : (
-                  <p className="mt-3 text-xs text-muted-foreground">Nothing dropped — already minimal.</p>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    Nothing dropped — already minimal.
+                  </p>
                 )}
               </div>
               <p className="mt-3 font-mono text-xs leading-relaxed text-muted-foreground">

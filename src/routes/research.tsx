@@ -82,10 +82,16 @@ function ResearchPage() {
       lede="The project no longer 'just compresses Hinglish'. Four of the five novelties are already serving live from the gateway and visualized on /results — every claim below ships with a reproducibility path even if the GPU budget stays zero."
     >
       <div className="mb-8 flex flex-wrap gap-3">
-        <Link to="/results" className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground hover:opacity-90">
+        <Link
+          to="/results"
+          className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground hover:opacity-90"
+        >
           See the live proof — Results
         </Link>
-        <Link to="/demo" className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium hover:bg-secondary">
+        <Link
+          to="/demo"
+          className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium hover:bg-secondary"
+        >
           Try adaptive in the Demo
         </Link>
       </div>

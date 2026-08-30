@@ -114,23 +114,45 @@ function Index() {
             <SavingsCounter />
             <Card className="flex items-center justify-between bg-secondary/30">
               <div>
-                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">One-sentence demo</p>
-                <p className="mt-1 text-sm leading-relaxed">Drag the slider on the tokenizer page and watch cost move — that’s the research.</p>
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                  One-sentence demo
+                </p>
+                <p className="mt-1 text-sm leading-relaxed">
+                  Drag the slider on the tokenizer page and watch cost move — that’s the research.
+                </p>
               </div>
-              <Link to="/tokenizer" className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Open →</Link>
+              <Link
+                to="/tokenizer"
+                className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              >
+                Open →
+              </Link>
             </Card>
           </div>
         </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-5 py-14">
-        <SectionHeading kicker="Try it now — no backend required" title="Type Hinglish → see 3 tokenizations, 3 costs, live" />
+        <SectionHeading
+          kicker="Try it now — no backend required"
+          title="Type Hinglish → see 3 tokenizations, 3 costs, live"
+        />
         <Card>
           <TokenizerVisualizer compact={false} />
         </Card>
         <div className="mt-4 flex flex-wrap gap-3">
-          <Link to="/tokenizer" className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium hover:bg-secondary">Open full playground with slider →</Link>
-          <Link to="/demo" className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium hover:bg-secondary">Run it through the gateway →</Link>
+          <Link
+            to="/tokenizer"
+            className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium hover:bg-secondary"
+          >
+            Open full playground with slider →
+          </Link>
+          <Link
+            to="/demo"
+            className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium hover:bg-secondary"
+          >
+            Run it through the gateway →
+          </Link>
         </div>
       </section>
 
@@ -188,7 +210,9 @@ function Index() {
                 <p className="font-serif text-4xl text-primary">{t.value}</p>
                 <p className="mt-2 text-sm font-medium">{t.label}</p>
                 <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{t.note}</p>
-                <span className="mt-3 inline-block text-xs font-medium text-primary">See live chart →</span>
+                <span className="mt-3 inline-block text-xs font-medium text-primary">
+                  See live chart →
+                </span>
               </Card>
             </Link>
           ))}
@@ -196,7 +220,10 @@ function Index() {
       </section>
 
       <section className="mx-auto max-w-6xl px-5 py-16">
-        <SectionHeading kicker="Five novelties" title="What makes this more than ' Hinglish + compression '" />
+        <SectionHeading
+          kicker="Five novelties"
+          title="What makes this more than ' Hinglish + compression '"
+        />
         <div className="grid gap-5 sm:grid-cols-2">
           {PILLARS.map((p) => (
             <Card key={p.tag} className="hover:border-primary/20">
@@ -213,10 +240,16 @@ function Index() {
           ))}
         </div>
         <div className="mt-6 flex flex-wrap gap-3">
-          <Link to="/results" className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground hover:opacity-90">
+          <Link
+            to="/results"
+            className="rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground hover:opacity-90"
+          >
             See the proof — live results
           </Link>
-          <Link to="/research" className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium hover:bg-secondary">
+          <Link
+            to="/research"
+            className="rounded-lg border border-border bg-card px-5 py-3 text-sm font-medium hover:bg-secondary"
+          >
             Full pillar breakdown →
           </Link>
         </div>
