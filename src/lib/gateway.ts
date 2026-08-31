@@ -92,6 +92,14 @@ export async function compressText(
   return (await res.json()) as CompressResponse;
 }
 
+export interface SweepPoint {
+  tau: number;
+  risk_hat: number;
+  risk_bound: number;
+  feasible: boolean;
+  is_selected?: boolean;
+}
+
 export interface CalibrationMetrics {
   n: number;
   alpha: number;
@@ -106,10 +114,20 @@ export interface CalibrationMetrics {
   real_path?: string;
   bench_n?: number;
   pad_n?: number;
+  sweep?: SweepPoint[];
 }
 
-export async function fetchCalibrationMetrics(): Promise<CalibrationMetrics> {
-  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/calibration/metrics`);
+export async function fetchCalibrationMetrics(
+  fullSweep: boolean = true,
+  window?: number,
+  realOnly: boolean = false,
+): Promise<CalibrationMetrics> {
+  const params = new URLSearchParams();
+  if (fullSweep) params.set("full_sweep", "1");
+  if (window) params.set("window", String(window));
+  if (realOnly) params.set("real_only", "1");
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/calibration/metrics${qs}`);
   if (!res.ok) throw new Error(`Calibration ${res.status}: ${await res.text()}`);
   return (await res.json()) as CalibrationMetrics;
 }
@@ -341,4 +359,141 @@ export async function* streamChatCompletion(
       }
     }
   }
+}
+
+export interface DifficultyAnatomyResp {
+  text: string;
+  char_count: number;
+  token_count: number;
+  code_mix_ratio: number;
+  entity_density: number;
+  math_marker_count: number;
+  w_code_mix: number;
+  w_entity: number;
+  w_math: number;
+  w_length: number;
+  contrib_code_mix: number;
+  contrib_entity: number;
+  contrib_math: number;
+  contrib_length: number;
+  difficulty_score: number;
+  threshold: number;
+  tier: string;
+}
+
+export async function fetchDifficultyFeatures(text: string): Promise<DifficultyAnatomyResp> {
+  const res = await fetchWithTimeout(
+    `${GATEWAY_URL}/v1/difficulty/features?text=${encodeURIComponent(text)}`,
+  );
+  if (!res.ok) throw new Error(`Difficulty features ${res.status}: ${await res.text()}`);
+  return (await res.json()) as DifficultyAnatomyResp;
+}
+
+export interface RewardAutopsyResp {
+  original: string;
+  compressed: string;
+  reference_answer: string;
+  predicted_answer: string;
+  answer_fidelity: number;
+  faithfulness: number;
+  w_fidelity: number;
+  w_faithfulness: number;
+  combined_reward: number;
+}
+
+export async function fetchRewardAutopsy(
+  text: string,
+  compressed = "",
+  ref = "",
+  pred = "",
+): Promise<RewardAutopsyResp> {
+  const params = new URLSearchParams({ text });
+  if (compressed) params.set("compressed", compressed);
+  if (ref) params.set("ref", ref);
+  if (pred) params.set("pred", pred);
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/reward/autopsy?${params.toString()}`);
+  if (!res.ok) throw new Error(`Reward autopsy ${res.status}: ${await res.text()}`);
+  return (await res.json()) as RewardAutopsyResp;
+}
+
+export interface CandidateItem {
+  index: number;
+  text: string;
+  tokens: number;
+  compression_ratio: number;
+  reward: number;
+  answer_fidelity: number;
+  faithfulness: number;
+  is_winner: boolean;
+}
+
+export interface CompressCandidatesResp {
+  original: string;
+  candidates: CandidateItem[];
+  winner_index: number;
+  winner_text: string;
+  distilled_cpu_fallback: boolean;
+}
+
+export async function fetchCompressCandidates(text: string): Promise<CompressCandidatesResp> {
+  const res = await fetchWithTimeout(
+    `${GATEWAY_URL}/v1/compress/candidates?text=${encodeURIComponent(text)}`,
+  );
+  if (!res.ok) throw new Error(`Candidates ${res.status}: ${await res.text()}`);
+  return (await res.json()) as CompressCandidatesResp;
+}
+
+export interface PromptsResp {
+  compress_system_prompt: string;
+  compress_user_template: string;
+  difficulty_weights: Record<string, number>;
+  reward_weights: Record<string, number>;
+  budget_params: Record<string, unknown>;
+  pricing_date: string;
+  commit_sha: string;
+}
+
+export async function fetchPrompts(): Promise<PromptsResp> {
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/prompts`);
+  if (!res.ok) throw new Error(`Prompts ${res.status}: ${await res.text()}`);
+  return (await res.json()) as PromptsResp;
+}
+
+export interface ReceiptResp {
+  id: number;
+  task_id: string;
+  ts: number;
+  user_id: string;
+  original_tokens: number;
+  compressed_tokens: number;
+  model_routed: string;
+  tier: string;
+  difficulty_score: number;
+  estimated_cost_savings: number;
+  compressed_prompt: string;
+  was_correct: boolean | null;
+}
+
+export async function fetchReceipt(identifier: string): Promise<ReceiptResp> {
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/receipt/${encodeURIComponent(identifier)}`);
+  if (!res.ok) throw new Error(`Receipt ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ReceiptResp;
+}
+
+export async function sendFeedback(
+  taskId: string,
+  wasCorrect: boolean,
+): Promise<{ ok: boolean; task_id: string; was_correct: boolean; recalibrated: boolean }> {
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task_id: taskId, was_correct: wasCorrect }),
+  });
+  if (!res.ok) throw new Error(`Feedback ${res.status}: ${await res.text()}`);
+  return (await res.json()) as {
+    ok: boolean;
+    task_id: string;
+    was_correct: boolean;
+    recalibrated: boolean;
+  };
 }

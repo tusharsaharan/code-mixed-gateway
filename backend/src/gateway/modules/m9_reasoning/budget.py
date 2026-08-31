@@ -81,7 +81,18 @@ class HinglishEnglishBudgetComparator:
         self.estimator = estimator or ReasoningBudgetEstimator()
 
     def gloss_for(self, hinglish: str) -> str | None:
-        return self.GLOSSES.get(hinglish.strip())
+        trimmed = hinglish.strip()
+        if not trimmed:
+            return None
+        if trimmed in self.GLOSSES:
+            return self.GLOSSES[trimmed]
+        try:
+            from gateway.modules.m12_novel.gloss import to_english_gloss
+
+            g = to_english_gloss(trimmed)
+            return g if g else None
+        except Exception:
+            return None
 
     def delta(self, hinglish: str, english: str) -> float:
         bi = self.estimator.estimate(hinglish).reasoning_tokens

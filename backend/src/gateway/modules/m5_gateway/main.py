@@ -23,11 +23,18 @@ from gateway.modules.m8_dashboard.dashboard import (
 )
 from gateway.modules.m11_calibration.ece import expected_calibration_error, reliability_diagram
 from gateway.schemas import (
+    CandidateItem,
     ChatCompletionRequest,
     ChatCompletionResponse,
+    CompressCandidatesResponse,
     DashboardStats,
+    DifficultyAnatomyResponse,
     DispatchResult,
+    FeedbackRequest,
     OpenAIErrorResponse,
+    PromptsResponse,
+    ReceiptResponse,
+    RewardAutopsyResponse,
     SeriesPoint,
 )
 from gateway.service import Gateway, get_log_db
@@ -239,6 +246,10 @@ async def _stream_chat(request: ChatCompletionRequest):  # type: ignore[no-untyp
                 compressed_tokens=compressed.token_compressed,
                 model_routed=client.model,
                 estimated_cost_savings=float(savings),
+                task_id=task_id,
+                compressed_prompt=compressed.compressed,
+                tier=tier,
+                difficulty_score=score,
             )
         except Exception:
             pass
@@ -352,6 +363,160 @@ async def compress_methods() -> dict:
             "else heuristic; adaptive is code-mix-aware (novel)"
         ),
     }
+
+
+def _get_git_commit_sha() -> str:
+    try:
+        import subprocess
+
+        res = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=1.0
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()[:10]
+    except Exception:
+        pass
+    return "003d033"
+
+
+@app.get("/v1/difficulty/features", response_model=DifficultyAnatomyResponse)
+async def difficulty_features(text: str) -> DifficultyAnatomyResponse:
+    gw = gateway()
+    scorer = gw.router.scorer
+    f = scorer.features(text)
+    length_norm = min(1.0, f.char_count / scorer.max_chars)
+    c_cm = round(scorer.W_CODE_MIX * f.code_mix_ratio, 6)
+    c_ent = round(scorer.W_ENTITY * f.entity_density, 6)
+    c_math = round(scorer.W_MATH * min(1.0, f.math_marker_count / 3.0), 6)
+    c_len = round(scorer.W_LENGTH * length_norm, 6)
+    score = scorer.score(text)
+    threshold = gw.calibrator.threshold
+    tier = gw.calibrator.tier(score)
+    return DifficultyAnatomyResponse(
+        text=text,
+        char_count=f.char_count,
+        token_count=f.token_count,
+        code_mix_ratio=f.code_mix_ratio,
+        entity_density=f.entity_density,
+        math_marker_count=f.math_marker_count,
+        w_code_mix=scorer.W_CODE_MIX,
+        w_entity=scorer.W_ENTITY,
+        w_math=scorer.W_MATH,
+        w_length=scorer.W_LENGTH,
+        contrib_code_mix=c_cm,
+        contrib_entity=c_ent,
+        contrib_math=c_math,
+        contrib_length=c_len,
+        difficulty_score=score,
+        threshold=threshold,
+        tier=tier,
+    )
+
+
+@app.get("/v1/reward/autopsy", response_model=RewardAutopsyResponse)
+async def reward_autopsy_endpoint(
+    text: str,
+    compressed: str = "",
+    ref: str = "",
+    pred: str = "",
+) -> RewardAutopsyResponse:
+    gw = gateway()
+    c_text = compressed.strip()
+    if not c_text:
+        comp_res = gw.compressor.compress_heuristic(text)
+        c_text = comp_res.compressed
+    r_text = ref.strip() or text
+    p_text = pred.strip() or r_text
+    from gateway.modules.m10_train.reward import reward_autopsy
+
+    res = reward_autopsy(text, c_text, r_text, p_text)
+    return RewardAutopsyResponse(
+        original=text,
+        compressed=c_text,
+        reference_answer=r_text,
+        predicted_answer=p_text,
+        answer_fidelity=res["answer_fidelity"],
+        faithfulness=res["faithfulness"],
+        w_fidelity=res["w_fidelity"],
+        w_faithfulness=res["w_faithfulness"],
+        combined_reward=res["combined_reward"],
+    )
+
+
+@app.get("/v1/compress/candidates", response_model=CompressCandidatesResponse)
+async def compress_candidates(text: str) -> CompressCandidatesResponse:
+    gw = gateway()
+    from gateway.modules.m10_train.distill import _variants
+    from gateway.modules.m10_train.reward import reward_autopsy
+
+    raw_cands = _variants(text, seed=7)
+    items: list[CandidateItem] = []
+    best_idx = 0
+    best_reward = -1.0
+    orig_tok = max(1, gw.counter.count(text))
+    for i, c in enumerate(raw_cands):
+        c_tok = max(1, gw.counter.count(c))
+        ratio = round(c_tok / orig_tok, 4)
+        autopsy = reward_autopsy(text, c, text, text)
+        r = autopsy["combined_reward"]
+        items.append(
+            CandidateItem(
+                index=i,
+                text=c,
+                tokens=c_tok,
+                compression_ratio=ratio,
+                reward=r,
+                answer_fidelity=autopsy["answer_fidelity"],
+                faithfulness=autopsy["faithfulness"],
+                is_winner=False,
+            )
+        )
+        if r > best_reward:
+            best_reward = r
+            best_idx = i
+
+    if items:
+        items[best_idx].is_winner = True
+    return CompressCandidatesResponse(
+        original=text,
+        candidates=items,
+        winner_index=best_idx,
+        winner_text=items[best_idx].text if items else text,
+        distilled_cpu_fallback=True,
+    )
+
+
+@app.get("/v1/prompts", response_model=PromptsResponse)
+async def prompts_endpoint() -> PromptsResponse:
+    from gateway.config import get_settings
+    from gateway.modules.m2_compressor.prompts import COMPRESS_SYSTEM_PROMPT, COMPRESS_USER_TEMPLATE
+    from gateway.modules.m4_router.difficulty import DifficultyScorer
+
+    s = get_settings()
+    return PromptsResponse(
+        compress_system_prompt=COMPRESS_SYSTEM_PROMPT,
+        compress_user_template=COMPRESS_USER_TEMPLATE,
+        difficulty_weights={
+            "code_mix": DifficultyScorer.W_CODE_MIX,
+            "entity_density": DifficultyScorer.W_ENTITY,
+            "math_markers": DifficultyScorer.W_MATH,
+            "length": DifficultyScorer.W_LENGTH,
+        },
+        reward_weights={
+            "answer_fidelity": 0.70,
+            "faithfulness": 0.30,
+        },
+        budget_params={
+            "base_budget": 128,
+            "max_budget": 2048,
+            "code_mix_factor": 120,
+            "math_marker_factor": 96,
+            "logic_marker_factor": 48,
+            "token_factor": 8,
+        },
+        pricing_date=s.pricing_date,
+        commit_sha=_get_git_commit_sha(),
+    )
 
 
 @app.post("/v1/reasoning/budget")
@@ -657,30 +822,37 @@ async def eval_novel_summary() -> dict:
 
 
 @app.get("/v1/calibration/metrics")
-async def calibration_metrics() -> dict:
+async def calibration_metrics(
+    full_sweep: bool = True,
+    window: int | None = None,
+    real_only: bool = False,
+) -> dict:
     gw = gateway()
-    scores = [s.nonconformity for s in gw.calibration]
-    labels = [s.cheap_success for s in gw.calibration]
-    ece = expected_calibration_error(scores, labels)
-    n = len(gw.calibration)
+    samples = list(gw.calibration)
+    if real_only:
+        samples = [s for s in samples if not str(s.id).startswith("pad-")]
+    if window is not None and window > 0 and len(samples) > window:
+        samples = samples[-window:]
+
+    scores = [s.nonconformity for s in samples]
+    labels = [s.cheap_success for s in samples]
+    ece = expected_calibration_error(scores, labels) if scores else 0.0
+    n = len(samples)
     simple_bound = round(gw.calibrator.alpha + 1.0 / (n + 1), 6) if n else gw.calibrator.alpha
     hoeffding_bound = round(gw.calibrator.risk_bound, 6)
     s = get_settings()
     cal_path = s.data_dir / "calibration.jsonl"
-    bench_n = 0
-    pad_n = 0
-    if cal_path.exists() and cal_path.stat().st_size > 0:
-        try:
-            for line in cal_path.read_text(encoding="utf-8").splitlines():
-                if "bench-" in line:
-                    bench_n += 1
-                elif "pad-" in line:
-                    pad_n += 1
-        except Exception:
-            pass
-        is_real = bench_n > 0
-    else:
-        is_real = False
+    bench_n = sum(
+        1
+        for c in samples
+        if str(c.id).startswith("bench-")
+        or str(c.id).startswith("real-")
+        or str(c.id).startswith("fb-")
+    )
+    pad_n = sum(1 for c in samples if str(c.id).startswith("pad-"))
+    is_real = bench_n > 0
+    sweep_data = gw.calibrator.sweep() if full_sweep else []
+
     return {
         "n": n,
         "alpha": gw.calibrator.alpha,
@@ -691,11 +863,12 @@ async def calibration_metrics() -> dict:
         "error_bound": hoeffding_bound,
         "risk_hat": round(gw.calibrator.risk_hat, 6),
         "ece": ece,
-        "reliability": reliability_diagram(scores, labels),
+        "reliability": reliability_diagram(scores, labels) if scores else [],
         "is_real": is_real,
         "bench_n": bench_n,
         "pad_n": pad_n,
         "real_path": str(cal_path),
+        "sweep": sweep_data,
     }
 
 
@@ -745,13 +918,65 @@ async def calibration_ingest(req: CalibrationIngestRequest) -> dict:
         return {"ingested": len(parsed), "n_total": len(gw.calibration), "threshold": gw.calibrator.threshold}
 
 
+@app.get("/v1/receipt/{identifier}", response_model=ReceiptResponse)
+@app.get("/receipt/{identifier}", response_model=ReceiptResponse)
+async def receipt_endpoint(identifier: str) -> ReceiptResponse:
+    db = get_log_db()
+    r = db.get_receipt(identifier)
+    if not r:
+        raise ValueError(f"Receipt not found for '{identifier}'")
+    return ReceiptResponse(
+        id=r["id"],
+        task_id=r["task_id"] or f"cmg-{r['id']}",
+        ts=r["ts"],
+        user_id=r["user_id"],
+        original_tokens=r["original_tokens"],
+        compressed_tokens=r["compressed_tokens"],
+        model_routed=r["model_routed"],
+        tier=r["tier"],
+        difficulty_score=r["difficulty_score"],
+        estimated_cost_savings=r["estimated_cost_savings"],
+        compressed_prompt=r["compressed_prompt"],
+        was_correct=r["was_correct"],
+    )
+
+
+@app.post("/v1/feedback")
+async def feedback_endpoint(req: FeedbackRequest) -> dict:
+    db = get_log_db()
+    ok = db.record_feedback(req.task_id, req.was_correct)
+    receipt = db.get_receipt(req.task_id)
+    recalibrated = False
+    if receipt and receipt.get("difficulty_score") is not None:
+        from gateway.modules.m3_conformal.calibration_store import append_sample
+
+        s = get_settings()
+        path = s.data_dir / "calibration.jsonl"
+        with _calibration_lock:
+            sample_id = f"fb-{req.task_id}"
+            append_sample(
+                path, sample_id, float(receipt["difficulty_score"]), bool(req.was_correct)
+            )
+            gw = gateway()
+            from gateway.service import load_calibration
+
+            gw.calibration = load_calibration(s.data_dir)
+            gw.calibrator.calibrate(gw.calibration)
+            recalibrated = True
+    return {
+        "ok": ok,
+        "task_id": req.task_id,
+        "was_correct": req.was_correct,
+        "recalibrated": recalibrated,
+    }
+
+
 @app.post("/telegram/webhook/{secret}")
 async def telegram_webhook(secret: str, request: Request):
     import hmac as _hmac
 
     s = get_settings()
     expected = s.telegram_webhook_secret or (s.telegram_token[-8:] if s.telegram_token else "")
-    # Support Telegram's X-Telegram-Bot-Api-Secret-Token header (constant-time)
     header_secret = request.headers.get("x-telegram-bot-api-secret-token", "")
     provided = header_secret or secret
     if not expected or not _hmac.compare_digest(provided, expected):
@@ -762,21 +987,42 @@ async def telegram_webhook(secret: str, request: Request):
         body = await request.json()
     except Exception:
         return JSONResponse(status_code=400, content={"error": "invalid JSON"})
-    # Telegram Update minimal parsing
-    msg = (body.get("message") or body.get("edited_message") or {})
+    msg = body.get("message") or body.get("edited_message") or {}
     text = (msg.get("text") or "").strip()
-    from_user = (msg.get("from") or {})
+    from_user = msg.get("from") or {}
     chat = msg.get("chat") or {}
     user_id = str(from_user.get("id") or chat.get("id") or "unknown")
     chat_id = chat.get("id")
     if not text or not chat_id:
         return {"ok": True}
-    # no commands except /start
     if text.startswith("/start"):
-        reply_text = "namaste! apna sawal bhejo — Hinglish me bhi chalega."
+        reply_text = (
+            "namaste! apna sawal bhejo — Hinglish me bhi chalega.\n\n"
+            "🔒 Transparency & Privacy: Queries are routed via Code-Mixed Gateway. "
+            "Every response includes an audit receipt with tokens and cost savings. "
+            "Type /receipt <task_id> to inspect any receipt."
+        )
+    elif text.startswith("/receipt"):
+        parts = text.split()
+        if len(parts) > 1:
+            rec_id = parts[1]
+            db = get_log_db()
+            r = db.get_receipt(rec_id)
+            if r:
+                reply_text = (
+                    f"🧾 Receipt {r['task_id'] or r['id']}:\n"
+                    f"• Tier: {r['tier']} ({r['model_routed']})\n"
+                    f"• Tokens: {r['original_tokens']} → {r['compressed_tokens']}\n"
+                    f"• Savings: ${r['estimated_cost_savings']:.5f}\n"
+                    f"• Difficulty: {r['difficulty_score']:.3f}\n"
+                    f"• Feedback: {'Correct' if r['was_correct'] is True else 'Failed' if r['was_correct'] is False else 'None yet'}"
+                )
+            else:
+                reply_text = f"Receipt '{rec_id}' not found."
+        else:
+            reply_text = "Please provide receipt ID: /receipt <id>"
     else:
         try:
-            # Direct internal call — avoids hardcoded localhost HTTP loop and double logging
             gw = gateway()
             from gateway.schemas import ChatCompletionRequest, ChatMessage
 
@@ -787,9 +1033,10 @@ async def telegram_webhook(secret: str, request: Request):
             )
             resp = await gw.handle(req)
             reply_text = resp.choices[0].message.content if resp.choices else ""
+            if resp.id:
+                reply_text += f"\n\n🧾 Receipt: /receipt {resp.id}"
         except Exception as exc:
             reply_text = f"sorry, gateway error: {exc}"
-    # send via Telegram Bot API
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             await client.post(

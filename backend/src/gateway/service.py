@@ -178,6 +178,10 @@ class Gateway:
                     compressed_tokens=compressed.token_compressed,
                     model_routed=dispatch.model_routed,
                     estimated_cost_savings=float(meta.estimated_cost_savings_usd),
+                    task_id=dispatch.task_id,
+                    compressed_prompt=compressed.compressed,
+                    tier=dispatch.tier,
+                    difficulty_score=dispatch.score,
                 )
             except Exception:
                 pass

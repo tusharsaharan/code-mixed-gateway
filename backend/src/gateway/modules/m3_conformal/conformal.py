@@ -27,7 +27,7 @@ class ConformalCalibrator:
     i.e. it maximizes cheap-tier coverage subject to the error guarantee.
     """
 
-    def __init__(self, alpha: float = 0.05, delta: float = 0.05) -> None:
+def __init__(self, alpha: float = 0.05, delta: float = 0.05) -> None:
         self.alpha = alpha
         self.delta = delta
         self.threshold: float = 0.0
@@ -35,9 +35,11 @@ class ConformalCalibrator:
         self.n_fail: int = 0
         self.risk_hat: float = 0.0
         self.risk_bound: float = 0.0
+        self.samples: list[CalibSample] = []
 
     def calibrate(self, samples: Iterable[CalibSample]) -> ConformalCalibrator:
         rows = list(samples)
+        self.samples = rows
         self.n_calib = len(rows)
         self.n_fail = sum(1 for s in rows if not s.cheap_success)
         if self.n_calib == 0:
@@ -63,6 +65,29 @@ class ConformalCalibrator:
         )
         self.risk_bound = self.risk_hat + correction
         return self
+
+    def sweep(self) -> list[dict[str, float | bool]]:
+        """Evaluate R_hat(tau) and R_ub(tau) across the 200-point grid."""
+        if self.n_calib == 0:
+            return []
+        correction = math.sqrt(math.log(_GRID_SIZE / self.delta) / (2 * self.n_calib))
+        points: list[dict[str, float | bool]] = []
+        for i in range(_GRID_SIZE + 1):
+            tau = round(i / _GRID_SIZE, 4)
+            risk = sum(
+                1 for s in self._samples if s.nonconformity < tau and not s.cheap_success
+            ) / self.n_calib
+            bound = risk + correction
+            points.append(
+                {
+                    "tau": tau,
+                    "risk_hat": round(risk, 6),
+                    "risk_bound": round(bound, 6),
+                    "feasible": bound <= self.alpha,
+                    "is_selected": abs(tau - self.threshold) < 1e-4,
+                }
+            )
+        return points
 
     @classmethod
     def from_pairs(

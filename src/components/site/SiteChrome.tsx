@@ -13,6 +13,7 @@ const NAV = [
   { to: "/roadmap", label: "Roadmap" },
   { to: "/team", label: "Team & Compute" },
   { to: "/pilot", label: "Pilot" },
+  { to: "/connect", label: "Connect" },
 ] as const;
 
 function NavItem({ to, label, exact }: { to: string; label: string; exact?: boolean }) {

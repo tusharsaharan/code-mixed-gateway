@@ -221,35 +221,54 @@ function PilotPage() {
                         <th className="px-3 py-2 text-right font-medium text-muted-foreground">
                           saved $
                         </th>
+                        <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                          receipt
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {!recent || recent.length === 0 ? (
                         <tr>
-                          <td colSpan={4} className="px-3 py-4 text-center text-muted-foreground">
+                          <td colSpan={5} className="px-3 py-4 text-center text-muted-foreground">
                             No recent queries
                           </td>
                         </tr>
                       ) : (
-                        (recent as Array<Record<string, unknown>>).slice(0, 8).map((r, i) => (
-                          <tr key={i} className="border-t border-border/60">
-                            <td className="px-3 py-2 font-mono truncate max-w-[80px]">
-                              {String(r["user_id"] ?? "—")}
-                            </td>
-                            <td className="px-3 py-2 font-mono">
-                              {String(r["original_tokens"] ?? "—")}→
-                              {String(r["compressed_tokens"] ?? "—")}
-                            </td>
-                            <td className="px-3 py-2 font-mono truncate max-w-[110px]">
-                              {String(r["model_routed"] ?? "—")}
-                            </td>
-                            <td className="px-3 py-2 text-right font-mono">
-                              {typeof r["estimated_cost_savings"] === "number"
-                                ? (r["estimated_cost_savings"] as number).toFixed(6)
-                                : String(r["estimated_cost_savings"] ?? "—")}
-                            </td>
-                          </tr>
-                        ))
+                        (recent as Array<Record<string, unknown>>).slice(0, 8).map((r, i) => {
+                          const taskId = String(r["task_id"] || r["id"] || "");
+                          return (
+                            <tr key={i} className="border-t border-border/60">
+                              <td className="px-3 py-2 font-mono truncate max-w-[80px]">
+                                {String(r["user_id"] ?? "—")}
+                              </td>
+                              <td className="px-3 py-2 font-mono">
+                                {String(r["original_tokens"] ?? "—")}→
+                                {String(r["compressed_tokens"] ?? "—")}
+                              </td>
+                              <td className="px-3 py-2 font-mono truncate max-w-[100px]">
+                                {String(r["model_routed"] ?? "—")}
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono">
+                                {typeof r["estimated_cost_savings"] === "number"
+                                  ? (r["estimated_cost_savings"] as number).toFixed(5)
+                                  : String(r["estimated_cost_savings"] ?? "—")}
+                              </td>
+                              <td className="px-3 py-2 text-right">
+                                {taskId ? (
+                                  <Link
+                                    to="/receipt/$id"
+                                    params={{ id: taskId }}
+                                    className="font-mono text-[11px] text-primary hover:underline"
+                                  >
+                                    #{taskId.slice(-6)}
+                                  </Link>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>

@@ -44,6 +44,7 @@ HF_TOKENIZER_SPECS: dict[str, str] = {
     "qwen2.5": "Qwen/Qwen2.5-0.5B-Instruct",
     "llama3.1": "meta-llama/Llama-3.1-8B-Instruct",
     "gemma2": "google/gemma-2-2b",
+    "muril": "google/muril-base-cased",
 }
 
 

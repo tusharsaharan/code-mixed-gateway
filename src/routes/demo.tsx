@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, Page, SectionHeading } from "../components/site/SiteChrome";
 import { Shred } from "../components/anim/Shred";
@@ -11,6 +11,14 @@ import {
   fetchReasoningBudget,
   streamChatCompletion,
   chatCompletion,
+  fetchDifficultyFeatures,
+  fetchRewardAutopsy,
+  fetchCompressCandidates,
+  fetchPrompts,
+  type DifficultyAnatomyResp,
+  type RewardAutopsyResp,
+  type CompressCandidatesResp,
+  type PromptsResp,
 } from "../lib/gateway";
 
 export const Route = createFileRoute("/demo")({
@@ -85,9 +93,20 @@ function DemoPage() {
     english_budget?: number;
   } | null>(null);
 
+  const [anatomy, setAnatomy] = useState<DifficultyAnatomyResp | null>(null);
+  const [autopsy, setAutopsy] = useState<RewardAutopsyResp | null>(null);
+  const [candidates, setCandidates] = useState<CompressCandidatesResp | null>(null);
+  const [prompts, setPrompts] = useState<PromptsResp | null>(null);
+
+  const [compView, setCompView] = useState<"shred" | "candidates">("shred");
+  const [reproMode, setReproMode] = useState(false);
+  const [copiedCurl, setCopiedCurl] = useState(false);
+  const [copiedJson, setCopiedJson] = useState(false);
+  const [taskId, setTaskId] = useState<string | null>(null);
+
   const abortRef = useRef<AbortController | null>(null);
 
-  // health probe
+  // health probe + prompts
   useEffect(() => {
     let cancelled = false;
     fetchHealth()
@@ -97,6 +116,11 @@ function DemoPage() {
       .catch(() => {
         if (!cancelled) setHealthOk(false);
       });
+    fetchPrompts()
+      .then((p) => {
+        if (!cancelled) setPrompts(p);
+      })
+      .catch(() => null);
     return () => {
       cancelled = true;
     };
@@ -117,16 +141,33 @@ function DemoPage() {
     setMeta(null);
     setCompressRes(null);
     setReasoning(null);
+    setAnatomy(null);
+    setAutopsy(null);
+    setCandidates(null);
+    setTaskId(null);
 
     try {
-      // 1) compress preview + reasoning budget in parallel
-      const [cRes, rBudget] = await Promise.all([
+      // 1) Parallel fetch: compress + reasoning budget + difficulty features + candidates
+      const [cRes, rBudget, anat, cands] = await Promise.all([
         compressText(trimmed, method),
         fetchReasoningBudget(trimmed).catch(() => null),
+        fetchDifficultyFeatures(trimmed).catch(() => null),
+        fetchCompressCandidates(trimmed).catch(() => null),
       ]);
       if (ac.signal.aborted) return;
       setCompressRes(cRes);
       if (rBudget) setReasoning(rBudget);
+      if (anat) setAnatomy(anat);
+      if (cands) setCandidates(cands);
+
+      // Fetch autopsy for the compressed output
+      if (cRes) {
+        fetchRewardAutopsy(trimmed, cRes.compressed)
+          .then((a) => {
+            if (!ac.signal.aborted) setAutopsy(a);
+          })
+          .catch(() => null);
+      }
 
       // 2) full gateway chat (stream or not)
       if (useStream) {
@@ -137,7 +178,7 @@ function DemoPage() {
           if (chunk.meta) {
             gotMeta = chunk.meta;
             setMeta(chunk.meta);
-            // when meta arrives, also merge reasoning if delta present
+            // when meta arrives, merge delta if present
             if (chunk.meta.budget_delta_hinglish_en != null && rBudget) {
               setReasoning((prev) =>
                 prev
@@ -151,12 +192,12 @@ function DemoPage() {
             setAnswer(full);
           }
         }
-        // if stream didn't yield meta (shouldn't happen), fallback to non-stream meta fetch
         if (!gotMeta) {
           const fallback = await chatCompletion(trimmed);
           if (!ac.signal.aborted) {
             setAnswer(fallback.choices[0]?.message.content ?? full);
             if (fallback.x_gateway) setMeta(fallback.x_gateway);
+            if (fallback.id) setTaskId(fallback.id);
           }
         }
       } else {
@@ -164,6 +205,7 @@ function DemoPage() {
         if (ac.signal.aborted) return;
         setAnswer(res.choices[0]?.message.content ?? "");
         if (res.x_gateway) setMeta(res.x_gateway);
+        if (res.id) setTaskId(res.id);
       }
     } catch (e) {
       if ((e as Error)?.name === "AbortError") return;
@@ -179,9 +221,30 @@ function DemoPage() {
     setMeta(null);
     setCompressRes(null);
     setReasoning(null);
+    setAnatomy(null);
+    setAutopsy(null);
+    setCandidates(null);
+    setTaskId(null);
     setError(null);
     setLoading(false);
   }, []);
+
+  const curlCommand = `curl -X POST "${GATEWAY_URL || "http://127.0.0.1:8000"}/v1/chat/completions" \\
+  -H "Content-Type: application/json" \\
+  -d '{\n    "model": "cascade",\n    "messages": [{"role": "user", "content": "${input.replace(/"/g, '\\"').replace(/\n/g, " ")}"}]\n  }'`;
+
+  const copyCurl = () => {
+    navigator.clipboard.writeText(curlCommand);
+    setCopiedCurl(true);
+    setTimeout(() => setCopiedCurl(false), 2000);
+  };
+
+  const copyMetaJson = () => {
+    if (!meta) return;
+    navigator.clipboard.writeText(JSON.stringify(meta, null, 2));
+    setCopiedJson(true);
+    setTimeout(() => setCopiedJson(false), 2000);
+  };
 
   const diff = compressRes ? wordDiff(compressRes.original, compressRes.compressed) : null;
   const charCount = input.length;
@@ -261,6 +324,15 @@ function DemoPage() {
               />
               Stream answer
             </label>
+            <label className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={reproMode}
+                onChange={(e) => setReproMode(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-input"
+              />
+              Reproducibility mode
+            </label>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
@@ -317,6 +389,14 @@ function DemoPage() {
             >
               Clear
             </button>
+            <button
+              type="button"
+              onClick={copyCurl}
+              className="rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
+              title="Copy copy-pasteable curl for this query"
+            >
+              {copiedCurl ? "✓ Copied cURL" : "Copy cURL"}
+            </button>
           </div>
           <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
             <span className="font-medium text-foreground">auto</span> uses distilled if available,
@@ -335,9 +415,30 @@ function DemoPage() {
           ) : null}
         </Card>
 
-        {/* compression preview */}
+        {/* compression preview + candidate explorer */}
         <Card className={compressRes ? "" : "bg-secondary/30"}>
-          <SectionHeading kicker="Compression" title="What got cut" />
+          <div className="flex items-center justify-between">
+            <SectionHeading kicker="Compression" title="What got cut" />
+            {candidates && candidates.candidates.length > 0 ? (
+              <div className="flex gap-1 rounded-lg border border-border bg-secondary/50 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setCompView("shred")}
+                  className={`rounded-md px-2 py-1 ${compView === "shred" ? "bg-card text-foreground font-medium shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Shred
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCompView("candidates")}
+                  className={`rounded-md px-2 py-1 ${compView === "candidates" ? "bg-card text-foreground font-medium shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  5 Candidates
+                </button>
+              </div>
+            ) : null}
+          </div>
+
           {!compressRes ? (
             <p className="text-sm leading-relaxed text-muted-foreground">
               Run the gateway to see the compressed prompt, token counts and which filler words were
@@ -345,6 +446,37 @@ function DemoPage() {
               <code className="rounded bg-secondary px-1 py-0.5 text-xs">user@example.com</code> are
               never removed.
             </p>
+          ) : compView === "candidates" && candidates ? (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Rejection-sampling distillation search across 5 candidate variants:
+              </p>
+              <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                {candidates.candidates.map((c) => (
+                  <div
+                    key={c.index}
+                    className={`rounded-xl border p-2.5 text-xs transition-colors ${c.is_winner ? "border-primary/40 bg-primary/[0.04]" : "border-border bg-card"}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-[11px] font-medium">
+                        #{c.index + 1} · {c.tokens} tok ({(c.compression_ratio * 100).toFixed(0)}%
+                        kept)
+                      </span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 font-mono text-[10px] ${c.is_winner ? "bg-primary text-primary-foreground font-bold" : "bg-secondary text-muted-foreground"}`}
+                      >
+                        {c.is_winner ? "Winner ★" : `reward ${c.reward.toFixed(3)}`}
+                      </span>
+                    </div>
+                    <p className="mt-1 font-mono text-muted-foreground line-clamp-2">{c.text}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                * Distilled CPU fallback executes rejection sampling over candidates scored by task
+                reward.
+              </p>
+            </div>
           ) : (
             <>
               <div className="flex flex-wrap gap-2 text-xs">
@@ -396,6 +528,21 @@ function DemoPage() {
                   </p>
                 )}
               </div>
+              {/* inline reward autopsy */}
+              {autopsy ? (
+                <div className="mt-3 rounded-xl border border-primary/20 bg-primary/[0.02] p-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-foreground">Reward autopsy</span>
+                    <span className="font-mono font-medium text-primary">
+                      score {autopsy.combined_reward.toFixed(4)}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    0.70 × fidelity ({autopsy.answer_fidelity.toFixed(3)}) + 0.30 × faithfulness (
+                    {autopsy.faithfulness.toFixed(3)})
+                  </p>
+                </div>
+              ) : null}
               <p className="mt-3 font-mono text-xs leading-relaxed text-muted-foreground">
                 Original: <span className="text-foreground">{compressRes.original}</span>
               </p>
@@ -404,10 +551,13 @@ function DemoPage() {
         </Card>
       </div>
 
-      {/* routing + reasoning */}
+      {/* routing + difficulty anatomy + cost + reasoning */}
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        {/* Routing card with Difficulty Anatomy */}
         <Card>
-          <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Routing</p>
+          <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+            Routing & Difficulty Anatomy
+          </p>
           {!meta ? (
             <p className="mt-2 text-sm text-muted-foreground">Run to see tier and threshold.</p>
           ) : (
@@ -420,9 +570,67 @@ function DemoPage() {
                 </span>
                 <span className="font-mono text-xs text-muted-foreground">{meta.model_routed}</span>
               </p>
-              <dl className="mt-4 space-y-2 text-sm">
+
+              {/* 4-bar difficulty decomposition */}
+              {anatomy ? (
+                <div className="mt-4 space-y-2 border-y border-border py-3 text-xs">
+                  <p className="font-medium text-muted-foreground">Feature decomposition:</p>
+                  <div>
+                    <div className="flex justify-between text-[11px]">
+                      <span>Code-Mix (40%)</span>
+                      <span className="font-mono">+{anatomy.contrib_code_mix.toFixed(3)}</span>
+                    </div>
+                    <div className="mt-0.5 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className="h-full bg-primary"
+                        style={{
+                          width: `${Math.min(100, (anatomy.contrib_code_mix / 0.4) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-[11px]">
+                      <span>Entity Density (30%)</span>
+                      <span className="font-mono">+{anatomy.contrib_entity.toFixed(3)}</span>
+                    </div>
+                    <div className="mt-0.5 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className="h-full bg-blue-500"
+                        style={{ width: `${Math.min(100, (anatomy.contrib_entity / 0.3) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-[11px]">
+                      <span>Math Markers (20%)</span>
+                      <span className="font-mono">+{anatomy.contrib_math.toFixed(3)}</span>
+                    </div>
+                    <div className="mt-0.5 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className="h-full bg-amber-500"
+                        style={{ width: `${Math.min(100, (anatomy.contrib_math / 0.2) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-[11px]">
+                      <span>Length (10%)</span>
+                      <span className="font-mono">+{anatomy.contrib_length.toFixed(3)}</span>
+                    </div>
+                    <div className="mt-0.5 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className="h-full bg-purple-500"
+                        style={{ width: `${Math.min(100, (anatomy.contrib_length / 0.1) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              <dl className="mt-3 space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Difficulty</dt>
+                  <dt className="text-muted-foreground">Total Difficulty</dt>
                   <dd className="font-mono font-medium">{meta.difficulty_score.toFixed(4)}</dd>
                 </div>
                 <div className="flex justify-between">
@@ -433,17 +641,15 @@ function DemoPage() {
                   <dt className="text-muted-foreground">Error bound</dt>
                   <dd className="font-mono font-medium">{meta.error_bound.toFixed(4)}</dd>
                 </div>
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Calibration n</dt>
-                  <dd className="font-mono">{meta.calibration_n}</dd>
-                </div>
               </dl>
             </>
           )}
         </Card>
 
         <Card>
-          <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Cost (approx)</p>
+          <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+            Cost & Savings
+          </p>
           {!meta ? (
             <p className="mt-2 text-sm text-muted-foreground">Run to see pricing.</p>
           ) : (
@@ -458,11 +664,21 @@ function DemoPage() {
                 </span>
               </p>
               <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                Pricing via <code className="rounded bg-secondary px-1 py-0.5">pricing.py</code>{" "}
-                (single source) at <span className="font-medium">2026-08-28</span> · CHEAP $0.00006
-                / PREMIUM $0.0025 per 1k tokens. Token counts depend on tokenizer (~1.5× spread) so
-                treat as approximate.
+                Pricing via <code className="rounded bg-secondary px-1 py-0.5">pricing.py</code> at{" "}
+                <span className="font-medium">2026-08-28</span> · CHEAP $0.00006 / PREMIUM $0.0025
+                per 1k tokens.
               </p>
+              {taskId ? (
+                <div className="mt-4 pt-3 border-t border-border">
+                  <Link
+                    to="/receipt/$id"
+                    params={{ id: taskId }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/[0.04] px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/[0.08]"
+                  >
+                    🧾 View query receipt #{taskId.slice(-8)} →
+                  </Link>
+                </div>
+              ) : null}
             </>
           )}
         </Card>
@@ -529,28 +745,72 @@ function DemoPage() {
                 ) : null}
               </div>
               {!loading && answer ? (
-                <p className="mt-4 border-t border-border pt-3 text-xs text-muted-foreground">
-                  Compressed prompt was {meta ? `${meta.compressed_tokens} tokens` : "—"} · Answer
-                  above is from{" "}
-                  <span className="font-medium text-foreground">
-                    {meta?.model_routed ?? "the routed tier"}
-                  </span>{" "}
-                  via the compressed prompt, so you can see it stays correct and coherent.
-                </p>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
+                  <span>
+                    Compressed prompt was {meta ? `${meta.compressed_tokens} tokens` : "—"} · Routed
+                    to{" "}
+                    <span className="font-medium text-foreground">
+                      {meta?.model_routed ?? "routed tier"}
+                    </span>
+                    .
+                  </span>
+                  {meta ? (
+                    <button
+                      type="button"
+                      onClick={copyMetaJson}
+                      className="rounded bg-secondary px-2 py-1 text-xs hover:text-foreground"
+                    >
+                      {copiedJson ? "✓ Copied x_gateway" : "Copy x_gateway JSON"}
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
             </>
           )}
         </Card>
-        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          What&apos;s real vs illustrative: compression, scoring, routing decision and the answer
-          call are real live gateway calls. Tier names and per-1k prices are reference 2026 API
-          rates from <code className="rounded bg-secondary px-1 py-0.5">pricing.py</code>. In
-          dry-run the tier&apos;s model reply is a deterministic mock so you can exercise the whole
-          pipeline without keys — set{" "}
-          <code className="rounded bg-secondary px-1 py-0.5">GATEWAY_DRY_RUN=false</code> and real
-          keys to call Groq / OpenAI / Ollama directly.
-        </p>
       </div>
+
+      {/* Reproducibility Mode drawer */}
+      {reproMode ? (
+        <div className="mt-6 space-y-4 rounded-2xl border border-primary/30 bg-card p-5">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-[0.16em] text-primary font-semibold">
+              Raw Protocol & Reproducibility Exposure (Commit {prompts?.commit_sha ?? "003d033"})
+            </p>
+            <button
+              type="button"
+              onClick={copyCurl}
+              className="rounded bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground"
+            >
+              {copiedCurl ? "✓ Copied" : "Copy cURL"}
+            </button>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">Exact cURL Command:</p>
+              <pre className="overflow-x-auto rounded-xl border border-border bg-secondary/50 p-3 font-mono text-[11px] text-foreground">
+                {curlCommand}
+              </pre>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">System Prompt Sent:</p>
+              <pre className="overflow-x-auto max-h-[160px] rounded-xl border border-border bg-secondary/50 p-3 font-mono text-[11px] text-foreground whitespace-pre-wrap">
+                {prompts?.compress_system_prompt ?? "Loading system prompt..."}
+              </pre>
+            </div>
+          </div>
+          {meta ? (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">
+                Full x_gateway Header JSON:
+              </p>
+              <pre className="overflow-x-auto rounded-xl border border-border bg-secondary/50 p-3 font-mono text-[11px] text-foreground">
+                {JSON.stringify(meta, null, 2)}
+              </pre>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </Page>
   );
 }

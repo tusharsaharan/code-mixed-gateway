@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 TIER = Literal["cheap", "premium"]
-METHOD = Literal["heuristic", "model", "passthrough", "distilled"]
+METHOD = Literal["heuristic", "model", "passthrough", "distilled", "adaptive"]
 
 
 class PromptRecord(BaseModel):
@@ -196,3 +196,92 @@ class SeriesPoint(BaseModel):
     bucket: str
     queries: int = 0
     savings_usd: float = 0.0
+
+
+class SweepPoint(BaseModel):
+    tau: float
+    risk_hat: float
+    risk_bound: float
+    feasible: bool
+    is_selected: bool = False
+
+
+class DifficultyAnatomyResponse(BaseModel):
+    text: str
+    char_count: int
+    token_count: int
+    code_mix_ratio: float
+    entity_density: float
+    math_marker_count: int
+    w_code_mix: float = 0.40
+    w_entity: float = 0.30
+    w_math: float = 0.20
+    w_length: float = 0.10
+    contrib_code_mix: float
+    contrib_entity: float
+    contrib_math: float
+    contrib_length: float
+    difficulty_score: float
+    threshold: float
+    tier: str
+
+
+class RewardAutopsyResponse(BaseModel):
+    original: str
+    compressed: str
+    reference_answer: str
+    predicted_answer: str
+    answer_fidelity: float
+    faithfulness: float
+    w_fidelity: float = 0.70
+    w_faithfulness: float = 0.30
+    combined_reward: float
+
+
+class CandidateItem(BaseModel):
+    index: int
+    text: str
+    tokens: int
+    compression_ratio: float
+    reward: float
+    answer_fidelity: float
+    faithfulness: float
+    is_winner: bool = False
+
+
+class CompressCandidatesResponse(BaseModel):
+    original: str
+    candidates: list[CandidateItem]
+    winner_index: int
+    winner_text: str
+    distilled_cpu_fallback: bool = True
+
+
+class FeedbackRequest(BaseModel):
+    task_id: str
+    was_correct: bool
+
+
+class ReceiptResponse(BaseModel):
+    id: int
+    task_id: str
+    ts: float
+    user_id: str
+    original_tokens: int
+    compressed_tokens: int
+    model_routed: str
+    tier: str
+    difficulty_score: float
+    estimated_cost_savings: float
+    compressed_prompt: str
+    was_correct: bool | None = None
+
+
+class PromptsResponse(BaseModel):
+    compress_system_prompt: str
+    compress_user_template: str
+    difficulty_weights: dict[str, float]
+    reward_weights: dict[str, float]
+    budget_params: dict[str, Any]
+    pricing_date: str
+    commit_sha: str

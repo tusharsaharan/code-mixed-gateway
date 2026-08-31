@@ -133,7 +133,7 @@ export function SavingsCounter({ compact = false }: { compact?: boolean }) {
     const targetInr = stats.total_cost_savings_inr;
     const startUsd = displayUsd;
     const startInr = displayInr;
-    const duration = 900;
+    const duration = 1200;
     const t0 = performance.now();
     let raf = 0;
     const tick = (now: number) => {
@@ -141,12 +141,14 @@ export function SavingsCounter({ compact = false }: { compact?: boolean }) {
       const eased = 1 - Math.pow(1 - p, 3);
       setDisplayUsd(startUsd + (targetUsd - startUsd) * eased);
       setDisplayInr(startInr + (targetInr - startInr) * eased);
-      if (p < 1) raf = requestAnimationFrame(tick);
+      if (p < 1) {
+        raf = requestAnimationFrame(tick);
+      }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stats?.total_cost_savings_usd]);
+  }, [stats?.total_cost_savings_usd, stats?.total_cost_savings_inr]);
 
   if (!stats && displayUsd === 0) {
     return (

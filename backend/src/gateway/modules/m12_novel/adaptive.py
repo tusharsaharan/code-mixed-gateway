@@ -141,7 +141,6 @@ def adaptive_compress_tagged(  # noqa: E501
 ) -> CompressResult:
     """Wrapper that tags method as 'adaptive' for reporting."""
     r = adaptive_compress(text, counter, scorer, compressor)
-    # Re-tag so frontend can distinguish adaptive vs fixed
     return CompressResult(
         original=r.original,
         compressed=r.compressed,
@@ -149,5 +148,5 @@ def adaptive_compress_tagged(  # noqa: E501
         token_original=r.token_original,
         token_compressed=r.token_compressed,
         ratio=r.ratio,
-        method="heuristic",  # keep heuristic literal for schema but caller will override
+        method="adaptive",
     )

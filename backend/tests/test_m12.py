@@ -212,3 +212,168 @@ def test_tokenizer_counter_fallback():
     c = TokenCounter()
     assert c.count("hello world") >= 2
     assert c.count("") == 0 or c.count("") >= 0
+
+
+def test_conformal_sweep_grid_and_monotonicity():
+    from gateway.modules.m3_conformal.conformal import ConformalCalibrator
+    from gateway.schemas import CalibSample
+
+    cal = ConformalCalibrator(alpha=0.10, delta=0.05)
+    samples = [
+        CalibSample(id="1", nonconformity=0.2, cheap_success=True),
+        CalibSample(id="2", nonconformity=0.4, cheap_success=True),
+        CalibSample(id="3", nonconformity=0.6, cheap_success=False),
+        CalibSample(id="4", nonconformity=0.8, cheap_success=False),
+    ]
+    cal.calibrate(samples)
+    sweep = cal.sweep()
+    assert len(sweep) == 201
+    assert sweep[0]["tau"] == 0.0
+    assert sweep[-1]["tau"] == 1.0
+    assert any(pt["is_selected"] for pt in sweep)
+    for pt in sweep:
+        assert 0.0 <= pt["risk_hat"] <= 1.0
+        assert pt["risk_bound"] >= pt["risk_hat"]
+
+
+def test_reward_autopsy_decomposition():
+    from gateway.modules.m10_train.reward import reward, reward_autopsy
+
+    orig = "yaar mera email user@example.com par bhejo na"
+    comp = "mera email user@example.com par bhejo"
+    ref = "send my email to user@example.com"
+    pred = "send email to user@example.com"
+
+    r = reward(orig, comp, ref, pred)
+    autopsy = reward_autopsy(orig, comp, ref, pred)
+
+    assert "answer_fidelity" in autopsy
+    assert "faithfulness" in autopsy
+    assert autopsy["w_fidelity"] == 0.7
+    assert autopsy["w_faithfulness"] == 0.3
+    assert autopsy["combined_reward"] == r
+    assert 0.0 <= autopsy["answer_fidelity"] <= 1.0
+    assert 0.0 <= autopsy["faithfulness"] <= 1.0
+
+
+def test_difficulty_features_and_anatomy():
+    from gateway.modules.m4_router.difficulty import DifficultyScorer
+
+    scorer = DifficultyScorer()
+    text = "arre yaar solve physics equation 15*8+22 ka answer Rs. 500 me batao"
+    f = scorer.features(text)
+
+    assert f.char_count == len(text)
+    assert f.token_count > 0
+    assert f.code_mix_ratio > 0.0
+    assert f.math_marker_count >= 1
+    assert f.entity_density > 0.0
+
+    s = scorer.score(text)
+    assert 0.0 <= s <= 1.0
+
+
+def test_candidates_generation_and_scoring():
+    from gateway.modules.m10_train.distill import _variants
+    from gateway.modules.m10_train.reward import reward_autopsy
+
+    text = "yaar basically hostel ka wifi bahut slow chal raha hai"
+    cands = _variants(text, seed=42)
+    assert len(cands) >= 3
+    for c in cands:
+        autopsy = reward_autopsy(text, c, text, text)
+        assert 0.0 <= autopsy["combined_reward"] <= 1.0
+
+
+def test_universal_gloss_reasoning_delta():
+    from gateway.modules.m9_reasoning.budget import HinglishEnglishBudgetComparator
+
+    comp = HinglishEnglishBudgetComparator()
+    # Query not in hardcoded dict
+    text = "yaar mera computer restart nahi ho raha hai please help karo"
+    gloss = comp.gloss_for(text)
+    assert gloss is not None
+    assert gloss != text
+    assert comp.delta(text, gloss) is not None
+
+
+def test_log_db_receipts_and_feedback(tmp_path):
+    from gateway.modules.m6_telegram.db import LogDB
+
+    db_path = tmp_path / "test_pilot.db"
+    db = LogDB(db_path)
+
+    log_id = db.log(
+        user_id="u123",
+        original_tokens=25,
+        compressed_tokens=15,
+        model_routed="test-model",
+        estimated_cost_savings=0.0025,
+        task_id="cmg-test-999",
+        compressed_prompt="compressed test prompt",
+        tier="cheap",
+        difficulty_score=0.345,
+    )
+    assert log_id > 0
+
+    receipt = db.get_receipt("cmg-test-999")
+    assert receipt is not None
+    assert receipt["task_id"] == "cmg-test-999"
+    assert receipt["tier"] == "cheap"
+    assert receipt["difficulty_score"] == pytest.approx(0.345, abs=1e-3)
+    assert receipt["was_correct"] is None
+
+    # Record feedback
+    ok = db.record_feedback("cmg-test-999", True)
+    assert ok is True
+
+    receipt_after = db.get_receipt("cmg-test-999")
+    assert receipt_after["was_correct"] is True
+    db.close()
+
+
+def test_new_endpoints_via_testclient():
+    from fastapi.testclient import TestClient
+
+    from gateway.modules.m5_gateway.main import app
+
+    client = TestClient(app)
+
+    # 1. Prompts
+    r_prompts = client.get("/v1/prompts")
+    assert r_prompts.status_code == 200
+    data_p = r_prompts.json()
+    assert "compress_system_prompt" in data_p
+    assert "difficulty_weights" in data_p
+    assert "reward_weights" in data_p
+    assert "commit_sha" in data_p
+
+    # 2. Difficulty features
+    r_diff = client.get("/v1/difficulty/features?text=yaar+hostel+ka+wifi+slow+hai")
+    assert r_diff.status_code == 200
+    data_d = r_diff.json()
+    assert "w_code_mix" in data_d
+    assert "contrib_code_mix" in data_d
+    assert "difficulty_score" in data_d
+
+    # 3. Reward autopsy
+    r_autopsy = client.get("/v1/reward/autopsy?text=yaar+mera+email+bhejo")
+    assert r_autopsy.status_code == 200
+    data_a = r_autopsy.json()
+    assert "answer_fidelity" in data_a
+    assert "faithfulness" in data_a
+    assert "combined_reward" in data_a
+
+    # 4. Candidates
+    r_cands = client.get("/v1/compress/candidates?text=yaar+mera+phone+charge+nahi+ho+raha+hai")
+    assert r_cands.status_code == 200
+    data_c = r_cands.json()
+    assert len(data_c["candidates"]) >= 3
+    assert data_c["winner_index"] >= 0
+
+    # 5. Calibration metrics with sweep
+    r_cal = client.get("/v1/calibration/metrics?full_sweep=1")
+    assert r_cal.status_code == 200
+    data_cal = r_cal.json()
+    assert "sweep" in data_cal
+    assert len(data_cal["sweep"]) == 201

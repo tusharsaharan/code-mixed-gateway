@@ -23,6 +23,25 @@ def reward(
     return round(0.7 * answer_score + 0.3 * faithfulness, 6)
 
 
+def reward_autopsy(
+    original: str,
+    compressed: str,
+    reference_answer: str,
+    predicted_answer: str,
+) -> dict[str, float]:
+    """Decompose downstream task correctness reward into its sub-scores and weights."""
+    answer_score = _answer_score(predicted_answer, reference_answer)
+    faithfulness = _faithfulness(compressed, original)
+    combined = round(0.7 * answer_score + 0.3 * faithfulness, 6)
+    return {
+        "answer_fidelity": round(answer_score, 6),
+        "faithfulness": round(faithfulness, 6),
+        "w_fidelity": 0.7,
+        "w_faithfulness": 0.3,
+        "combined_reward": combined,
+    }
+
+
 def _answer_score(hyp: str, ref: str) -> float:
     if not hyp or not ref:
         return 0.0

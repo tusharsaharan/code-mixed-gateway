@@ -1,5 +1,9 @@
 import { motion, AnimatePresence } from "framer-motion";
 
+function normToken(s: string): string {
+  return s.toLowerCase().replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, "");
+}
+
 export function Shred({
   original,
   compressed,
@@ -10,6 +14,7 @@ export function Shred({
   active?: boolean;
 }) {
   const cSet = new Set(compressed.split(/\s+/));
+  const cNormSet = new Set(compressed.split(/\s+/).map(normToken).filter(Boolean));
   const parts = original.split(/(\s+)/);
   // Map each word token to kept/dropped
   let wIdx = 0;
@@ -19,7 +24,8 @@ export function Shred({
         {parts.map((p, i) => {
           const isSpace = /^\s+$/.test(p);
           if (isSpace) return <span key={i}>{p}</span>;
-          const kept = cSet.has(p);
+          const cleaned = normToken(p);
+          const kept = cSet.has(p) || (cleaned.length > 0 && cNormSet.has(cleaned));
           const word = p;
           wIdx++;
           if (kept) {
