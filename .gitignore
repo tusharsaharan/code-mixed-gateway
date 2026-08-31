@@ -44,7 +44,8 @@ data/*.sqlite
 data/*.sqlite-shm
 data/*.sqlite-wal
 .mcp.json
-mcp.json
+/mcp.json
+!.vscode/mcp.json
 .env
 # Lockfile: bun is canonical for this template (tanstack_start_ts_current); npm lock is ignored
 package-lock.json

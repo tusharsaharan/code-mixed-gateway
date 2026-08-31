@@ -1,0 +1,23 @@
+{
+  "servers": {
+    "code-mixed-gateway": {
+      "command": "python",
+      "args": ["-m", "gateway.mcp"],
+      "cwd": "${workspaceFolder}/backend",
+      "env": {
+        "GATEWAY_DRY_RUN": "true"
+      },
+      "type": "stdio"
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${workspaceFolder}"],
+      "type": "stdio"
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp", "--browser", "chromium", "--caps", "vision"],
+      "type": "stdio"
+    }
+  }
+}
