@@ -46,6 +46,7 @@ class CalibSample(BaseModel):
     id: str
     nonconformity: float = Field(ge=0.0, le=1.0)
     cheap_success: bool
+    synthetic: bool = True
 
 
 class DifficultyFeature(BaseModel):
@@ -285,3 +286,34 @@ class PromptsResponse(BaseModel):
     budget_params: dict[str, Any]
     pricing_date: str
     commit_sha: str
+
+
+class RedteamRequest(BaseModel):
+    text: str
+    method: str = "adaptive"
+
+
+class RedteamResponse(BaseModel):
+    original: str
+    compressed: str
+    spans: list[SafetySpan] = Field(default_factory=list)
+    token_original: int = 0
+    token_compressed: int = 0
+    ratio: float = 1.0
+    method: str = "heuristic"
+    verdict: str = "safe"
+    break_type: str | None = None
+    critical_dropped: list[str] = Field(default_factory=list)
+    reward: float = 0.0
+
+
+class ChallengeEntry(BaseModel):
+    id: int | None = None
+    ts: float = 0.0
+    text: str
+    compressed: str
+    verdict: str
+    break_type: str | None = None
+    critical_dropped: list[str] = Field(default_factory=list)
+    method: str = "adaptive"
+    user_hash: str = "anon"

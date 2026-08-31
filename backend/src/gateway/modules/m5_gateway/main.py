@@ -24,6 +24,7 @@ from gateway.modules.m8_dashboard.dashboard import (
 from gateway.modules.m11_calibration.ece import expected_calibration_error, reliability_diagram
 from gateway.schemas import (
     CandidateItem,
+    ChallengeEntry,
     ChatCompletionRequest,
     ChatCompletionResponse,
     CompressCandidatesResponse,
@@ -34,6 +35,8 @@ from gateway.schemas import (
     OpenAIErrorResponse,
     PromptsResponse,
     ReceiptResponse,
+    RedteamRequest,
+    RedteamResponse,
     RewardAutopsyResponse,
     SeriesPoint,
 )
@@ -112,7 +115,10 @@ async def healthz():
         except Exception:
             pass
     is_real = bench_n > 0
+    from gateway.modules.m3_conformal.calibration_store import data_state
     from gateway.tokenizer import TokenCounter
+
+    ds = data_state(gw.calibration)
 
     return {
         "status": "ok",
@@ -120,6 +126,8 @@ async def healthz():
         "version": app.version,
         "calibration_n": len(gw.calibration),
         "calibration_real": is_real,
+        "data_state": ds["state"],
+        "data_state_real_n": ds["real_n"],
         "calibration_bench_n": bench_n,
         "calibration_pad_n": pad_n,
         "threshold": gw.calibrator.threshold,
@@ -519,6 +527,219 @@ async def prompts_endpoint() -> PromptsResponse:
     )
 
 
+_NEGATION_WORDS = {
+    "not",
+    "no",
+    "never",
+    "nahi",
+    "nahin",
+    "mat",
+    "ना",
+    "नहीं",
+    "नहिं",
+    "मत",
+    "dont",
+    "don't",
+    "cannot",
+    "can't",
+}
+_ORDER_WORDS = {
+    "before",
+    "after",
+    "pehle",
+    "baad",
+    "badme",
+    "phele",
+    "first",
+    "last",
+    "upar",
+    "neeche",
+}
+_AMOUNT_RE = __import__("re").compile(r"(?:Rs\.?|INR|₹|\$)\s?\d[\d,]*(?:\.\d+)?|\b\d{2,}\b")
+
+
+def _grade_redteam(original: str, compressed: str, spans) -> tuple[str, str | None, list[str]]:
+    low_orig = original.lower()
+    low_comp = compressed.lower()
+    dropped: list[str] = []
+    break_type: str | None = None
+
+    # Protected spans
+    for sp in spans:
+        if sp.text not in compressed:
+            dropped.append(sp.text)
+            break_type = "protected"
+            return "break", break_type, dropped
+
+    # Negation
+    orig_tokens = set(low_orig.replace(",", " ").replace(".", " ").split())
+    comp_tokens = set(low_comp.replace(",", " ").replace(".", " ").split())
+    for w in _NEGATION_WORDS:
+        if w in orig_tokens and w not in comp_tokens:
+            dropped.append(w)
+            break_type = "negation"
+            return "break", break_type, dropped
+
+    # Order
+    for w in _ORDER_WORDS:
+        if w in orig_tokens and w not in comp_tokens:
+            dropped.append(w)
+            break_type = "order"
+            return "break", break_type, dropped
+
+    # Amount / number critical
+
+    orig_amounts = set(_AMOUNT_RE.findall(original))
+    comp_amounts = set(_AMOUNT_RE.findall(compressed))
+    for a in orig_amounts:
+        if a not in comp_amounts:
+            dropped.append(a)
+            break_type = "number"
+            return "break", break_type, dropped
+
+    return "safe", None, []
+
+
+_CHALLENGE_PATH = get_settings().data_dir / "challenges.jsonl"
+
+
+def _append_challenge(entry: dict) -> None:
+    try:
+        _CHALLENGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _CHALLENGE_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(_json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _load_challenges(limit: int = 100) -> list[dict]:
+    if not _CHALLENGE_PATH.exists():
+        return []
+    try:
+        lines = _CHALLENGE_PATH.read_text(encoding="utf-8").splitlines()
+        rows = [_json.loads(line) for line in lines if line.strip()]
+        return rows[-limit:]
+    except Exception:
+        return []
+
+
+@app.post("/v1/compress/redteam", response_model=RedteamResponse)
+async def compress_redteam(req: RedteamRequest) -> RedteamResponse:
+    gw = gateway()
+    method = (req.method or "adaptive").lower()
+    text = req.text or ""
+    if not text.strip():
+        raise ValueError("empty text: provide non-empty 'text' field")
+
+    # Reuse same dispatch as /v1/compress but force grading
+    if method == "heuristic":
+        res = gw.compressor.compress_heuristic(text)
+    elif method == "distilled":
+        res = gw.compressor.compress_distilled(text)
+    elif method == "model":
+        res = await gw.compressor.compress_model(text)
+    elif method == "adaptive":
+        comp = await gw.compressor.compress(text)
+        # adaptive is heuristic+truncate in this codebase
+        # Re-derive via adaptive helper if available
+        try:
+            from gateway.modules.m12_novel.adaptive import adaptive_compress
+
+            # Use the real adaptive path for grading
+            res = adaptive_compress(text, gw.counter, gw.router.scorer, gw.compressor)
+            res.method = "adaptive"  # type: ignore
+        except Exception:
+            res = comp
+    else:
+        res = await gw.compressor.compress(text)
+
+    verdict, break_type, dropped = _grade_redteam(res.original, res.compressed, res.spans)
+
+    # Reward for transparency
+    try:
+        from gateway.modules.m10_train.reward import reward as _reward
+
+        rew = _reward(text, res.compressed, text, text)
+    except Exception:
+        rew = 0.0
+
+    # Public gamified log — anonymized, always (break or safe, for leaderboard)
+    try:
+        _append_challenge(
+            {
+                "ts": __import__("time").time(),
+                "text": text[:240],
+                "compressed": res.compressed[:240],
+                "verdict": verdict,
+                "break_type": break_type,
+                "critical_dropped": dropped,
+                "method": method,
+                "user_hash": "anon",
+            }
+        )
+    except Exception:
+        pass
+
+    return RedteamResponse(
+        original=res.original,
+        compressed=res.compressed,
+        spans=res.spans,
+        token_original=res.token_original,
+        token_compressed=res.token_compressed,
+        ratio=res.ratio,
+        method=method,
+        verdict=verdict,
+        break_type=break_type,
+        critical_dropped=dropped,
+        reward=round(float(rew), 6),
+    )
+
+
+@app.get("/v1/compress/challenges")
+async def list_challenges(limit: int = 20) -> dict:
+    rows = _load_challenges(limit=max(1, min(100, limit)))
+    total = 0
+    try:
+        if _CHALLENGE_PATH.exists():
+            total = sum(1 for line in _CHALLENGE_PATH.read_text(encoding="utf-8").splitlines() if line.strip())
+    except Exception:
+        total = len(rows)
+    breaks = sum(1 for r in rows if r.get("verdict") == "break")
+    by_type: dict[str, int] = {}
+    for r in rows:
+        if r.get("verdict") == "break":
+            by_type[r.get("break_type") or "unknown"] = by_type.get(r.get("break_type") or "unknown", 0) + 1
+    # Recent breaks for ticker
+    recent_breaks = [r for r in rows if r.get("verdict") == "break"][-8:]
+    return {
+        "total_attempts": total,
+        "recent_n": len(rows),
+        "breaks_recent": breaks,
+        "break_rate_recent": round(breaks / max(1, len(rows)), 4),
+        "by_type": by_type,
+        "recent": rows[::-1],
+        "recent_breaks": recent_breaks[::-1],
+    }
+
+
+@app.post("/v1/compress/challenge")
+async def log_challenge(entry: ChallengeEntry) -> dict:
+    # Explicit gamified log (user-submitted break claim) — public
+    _append_challenge(
+        {
+            "ts": __import__("time").time(),
+            "text": entry.text[:240],
+            "compressed": entry.compressed[:240],
+            "verdict": entry.verdict,
+            "break_type": entry.break_type,
+            "critical_dropped": entry.critical_dropped,
+            "method": entry.method,
+            "user_hash": entry.user_hash[:24],
+        }
+    )
+    return {"ok": True, "logged": True}
+
+
 @app.post("/v1/reasoning/budget")
 async def reasoning_budget(req: ReasoningBudgetRequest) -> dict:
     gw = gateway()
@@ -827,10 +1048,16 @@ async def calibration_metrics(
     window: int | None = None,
     real_only: bool = False,
 ) -> dict:
+    from gateway.modules.m3_conformal.calibration_store import data_state
+    from gateway.modules.m3_conformal.conformal import ConformalCalibrator
+
     gw = gateway()
-    samples = list(gw.calibration)
+    all_samples = list(gw.calibration)
+
+    # Subset for rolling/live-falsifiable view
+    samples = list(all_samples)
     if real_only:
-        samples = [s for s in samples if not str(s.id).startswith("pad-")]
+        samples = [s for s in samples if not s.synthetic]
     if window is not None and window > 0 and len(samples) > window:
         samples = samples[-window:]
 
@@ -838,37 +1065,44 @@ async def calibration_metrics(
     labels = [s.cheap_success for s in samples]
     ece = expected_calibration_error(scores, labels) if scores else 0.0
     n = len(samples)
+
+    # Recalibrate over the subset so the bound reflects exactly what is shown.
+    rolling = ConformalCalibrator(gw.calibrator.alpha, gw.calibrator.delta).calibrate(samples)
     simple_bound = round(gw.calibrator.alpha + 1.0 / (n + 1), 6) if n else gw.calibrator.alpha
-    hoeffding_bound = round(gw.calibrator.risk_bound, 6)
+    hoeffding_bound = round(rolling.risk_bound, 6) if n else gw.calibrator.alpha
+
     s = get_settings()
     cal_path = s.data_dir / "calibration.jsonl"
-    bench_n = sum(
-        1
-        for c in samples
-        if str(c.id).startswith("bench-")
-        or str(c.id).startswith("real-")
-        or str(c.id).startswith("fb-")
-    )
-    pad_n = sum(1 for c in samples if str(c.id).startswith("pad-"))
-    is_real = bench_n > 0
-    sweep_data = gw.calibrator.sweep() if full_sweep else []
+    ds = data_state(all_samples)
+    observed_fails = rolling.n_fail if n else 0
+    bound_broken = bool(n and hoeffding_bound < rolling.risk_hat)
+
+    sweep_data = rolling.sweep() if full_sweep else []
 
     return {
         "n": n,
+        "n_total": ds["total_n"],
         "alpha": gw.calibrator.alpha,
         "delta": gw.calibrator.delta,
-        "threshold": gw.calibrator.threshold,
+        "threshold": rolling.threshold if n else gw.calibrator.threshold,
         "error_bound_simple": simple_bound,
         "error_bound_hoeffding": hoeffding_bound,
         "error_bound": hoeffding_bound,
-        "risk_hat": round(gw.calibrator.risk_hat, 6),
+        "risk_hat": round(rolling.risk_hat, 6) if n else 0.0,
         "ece": ece,
         "reliability": reliability_diagram(scores, labels) if scores else [],
-        "is_real": is_real,
-        "bench_n": bench_n,
-        "pad_n": pad_n,
+        "is_real": ds["state"] == "live",
+        "data_state": ds["state"],
+        "real_n": ds["real_n"],
+        "live_threshold": ds["live_threshold"],
+        "observed_failures": observed_fails,
+        "bound_broken": bound_broken,
+        "bench_n": ds["total_n"],
+        "pad_n": 0,
         "real_path": str(cal_path),
         "sweep": sweep_data,
+        "rolling_window": window,
+        "real_only": real_only,
     }
 
 

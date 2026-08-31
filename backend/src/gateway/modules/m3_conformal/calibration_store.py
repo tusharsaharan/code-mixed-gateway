@@ -49,3 +49,30 @@ def is_real(path: Path) -> bool:
         return "bench-" in text
     except Exception:
         return False
+
+
+def data_state(
+    samples: list[CalibSample],
+    live_threshold: int = 30,
+) -> dict:
+    """Tri-state honesty: how much of the calibration set is real traffic.
+
+    Returns one of three states so the frontend can display:
+      - "synthetic" : zero human-labelled rows (0 real)
+      - "mixed"     : some but fewer than ``live_threshold`` real rows
+      - "live"      : >= ``live_threshold`` real rows (conformal claim is grounded)
+    """
+    total = len(samples)
+    real = sum(1 for s in samples if not s.synthetic)
+    if real >= live_threshold:
+        state = "live"
+    elif real > 0:
+        state = "mixed"
+    else:
+        state = "synthetic"
+    return {
+        "state": state,
+        "real_n": real,
+        "total_n": total,
+        "live_threshold": live_threshold,
+    }
