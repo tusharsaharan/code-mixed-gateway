@@ -6,6 +6,7 @@ import { GATEWAY_URL } from "../../lib/gateway";
 const NAV = [
   { to: "/", label: "Overview", exact: true },
   { to: "/demo", label: "Demo" },
+  { to: "/redteam", label: "Red Team" },
   { to: "/tokenizer", label: "Tokenizer" },
   { to: "/results", label: "Results" },
   { to: "/research", label: "Research" },

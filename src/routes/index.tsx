@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Card, SectionHeading } from "../components/site/SiteChrome";
 import { TokenizerVisualizer } from "../components/tokenizer/TokenizerVisualizer";
 import { LiveTicker, SavingsCounter } from "../components/site/LiveTicker";
+import { ChallengeTicker } from "../components/site/ChallengeTicker";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -74,6 +75,7 @@ function Index() {
   return (
     <main>
       <LiveTicker />
+      <ChallengeTicker />
       <section className="paper-grid border-b border-border/70">
         <div className="mx-auto max-w-6xl px-5 py-14 sm:py-20">
           <p className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">

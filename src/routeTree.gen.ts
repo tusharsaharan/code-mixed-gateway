@@ -14,6 +14,7 @@ import { Route as BenchmarkRouteImport } from './routes/benchmark'
 import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as DemoRouteImport } from './routes/demo'
 import { Route as PilotRouteImport } from './routes/pilot'
+import { Route as RedteamRouteImport } from './routes/redteam'
 import { Route as ResearchRouteImport } from './routes/research'
 import { Route as ResultsRouteImport } from './routes/results'
 import { Route as RoadmapRouteImport } from './routes/roadmap'
@@ -44,6 +45,11 @@ const DemoRoute = DemoRouteImport.update({
 const PilotRoute = PilotRouteImport.update({
   id: '/pilot',
   path: '/pilot',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RedteamRoute = RedteamRouteImport.update({
+  id: '/redteam',
+  path: '/redteam',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResearchRoute = ResearchRouteImport.update({
@@ -83,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/connect': typeof ConnectRoute
   '/demo': typeof DemoRoute
   '/pilot': typeof PilotRoute
+  '/redteam': typeof RedteamRoute
   '/research': typeof ResearchRoute
   '/results': typeof ResultsRoute
   '/roadmap': typeof RoadmapRoute
@@ -96,6 +103,7 @@ export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/demo': typeof DemoRoute
   '/pilot': typeof PilotRoute
+  '/redteam': typeof RedteamRoute
   '/research': typeof ResearchRoute
   '/results': typeof ResultsRoute
   '/roadmap': typeof RoadmapRoute
@@ -110,6 +118,7 @@ export interface FileRoutesById {
   '/connect': typeof ConnectRoute
   '/demo': typeof DemoRoute
   '/pilot': typeof PilotRoute
+  '/redteam': typeof RedteamRoute
   '/research': typeof ResearchRoute
   '/results': typeof ResultsRoute
   '/roadmap': typeof RoadmapRoute
@@ -125,6 +134,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/demo'
     | '/pilot'
+    | '/redteam'
     | '/research'
     | '/results'
     | '/roadmap'
@@ -138,6 +148,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/demo'
     | '/pilot'
+    | '/redteam'
     | '/research'
     | '/results'
     | '/roadmap'
@@ -151,6 +162,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/demo'
     | '/pilot'
+    | '/redteam'
     | '/research'
     | '/results'
     | '/roadmap'
@@ -165,6 +177,7 @@ export interface RootRouteChildren {
   ConnectRoute: typeof ConnectRoute
   DemoRoute: typeof DemoRoute
   PilotRoute: typeof PilotRoute
+  RedteamRoute: typeof RedteamRoute
   ResearchRoute: typeof ResearchRoute
   ResultsRoute: typeof ResultsRoute
   RoadmapRoute: typeof RoadmapRoute
@@ -208,6 +221,13 @@ declare module '@tanstack/react-router' {
       path: '/pilot'
       fullPath: '/pilot'
       preLoaderRoute: typeof PilotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/redteam': {
+      id: '/redteam'
+      path: '/redteam'
+      fullPath: '/redteam'
+      preLoaderRoute: typeof RedteamRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/research': {
@@ -261,6 +281,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConnectRoute: ConnectRoute,
   DemoRoute: DemoRoute,
   PilotRoute: PilotRoute,
+  RedteamRoute: RedteamRoute,
   ResearchRoute: ResearchRoute,
   ResultsRoute: ResultsRoute,
   RoadmapRoute: RoadmapRoute,

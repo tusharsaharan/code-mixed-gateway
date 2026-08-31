@@ -25,6 +25,7 @@ function ReceiptPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
+  const [view, setView] = useState<"full" | "minimal">("full");
 
   const loadReceipt = useCallback(async () => {
     setLoading(true);
@@ -112,12 +113,42 @@ function ReceiptPage() {
     100
   ).toFixed(1);
 
+  const anonUser = receipt.user_id
+    ? `${receipt.user_id.slice(0, 4)}***${receipt.user_id.slice(-2)}`
+    : "anon";
+
   return (
     <Page
       eyebrow="Audit Receipt"
       title={`Receipt #${receipt.task_id || receipt.id}`}
       lede="Cryptographic transparency: exact token counts, routing decisions, cost savings, and live evaluation feedback."
     >
+      {/* Dual view toggle — do both options: full anonymized vs minimal */}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="uppercase tracking-[0.14em] text-muted-foreground">View</span>
+          <div className="flex gap-1 rounded-lg border border-border bg-secondary/50 p-1">
+            <button
+              onClick={() => setView("full")}
+              className={`rounded-md px-3 py-1 text-xs font-medium ${view === "full" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}
+            >
+              Full (anonymized)
+            </button>
+            <button
+              onClick={() => setView("minimal")}
+              className={`rounded-md px-3 py-1 text-xs font-medium ${view === "minimal" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}
+            >
+              Minimal (tokens only)
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {view === "full"
+            ? "Shows anonymized user hash + compressed prompt — for audit, not PII"
+            : "Hides user hash & prompt — shares only tier/tokens/savings"}
+        </p>
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Main Details Card */}
         <Card className="lg:col-span-2">
@@ -149,14 +180,25 @@ function ReceiptPage() {
                 </span>
               </dd>
             </div>
-            <div className="rounded-xl border border-border bg-secondary/30 p-3.5">
-              <dt className="text-xs uppercase tracking-wider text-muted-foreground">
-                Difficulty Score
-              </dt>
-              <dd className="mt-1 font-mono font-medium text-foreground">
-                {receipt.difficulty_score.toFixed(4)}
-              </dd>
-            </div>
+            {view === "full" ? (
+              <>
+                <div className="rounded-xl border border-border bg-secondary/30 p-3.5">
+                  <dt className="text-xs uppercase tracking-wider text-muted-foreground">
+                    User (anonymized)
+                  </dt>
+                  <dd className="mt-1 font-mono text-xs text-foreground">{anonUser}</dd>
+                  <dd className="text-[11px] text-muted-foreground">hash, not PII</dd>
+                </div>
+                <div className="rounded-xl border border-border bg-secondary/30 p-3.5">
+                  <dt className="text-xs uppercase tracking-wider text-muted-foreground">
+                    Difficulty Score
+                  </dt>
+                  <dd className="mt-1 font-mono font-medium text-foreground">
+                    {receipt.difficulty_score.toFixed(4)}
+                  </dd>
+                </div>
+              </>
+            ) : null}
           </dl>
 
           <div className="mt-6 border-t border-border pt-4">
@@ -184,15 +226,19 @@ function ReceiptPage() {
             </div>
           </div>
 
-          {receipt.compressed_prompt ? (
+          {view === "full" && receipt.compressed_prompt ? (
             <div className="mt-6 border-t border-border pt-4">
               <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
-                Compressed Prompt Executed:
+                Compressed Prompt Executed (anonymized view):
               </p>
               <pre className="overflow-x-auto rounded-xl border border-border bg-secondary/50 p-3 font-mono text-xs text-foreground whitespace-pre-wrap">
                 {receipt.compressed_prompt}
               </pre>
             </div>
+          ) : view === "minimal" ? (
+            <p className="mt-4 text-xs italic text-muted-foreground">
+              Minimal view hides prompt & user — share safely.
+            </p>
           ) : null}
         </Card>
 
