@@ -65,21 +65,24 @@ export function CalibrationPanel() {
   const challengeN = 100;
   const maxFails = Math.round(m.error_bound * challengeN);
 
-  const benchN = m.bench_n ?? 0;
-  const padN = m.pad_n ?? 0;
+  // Tri-state: invent third state + do both options (full text hash + anonymized)
+  const dataState = m.data_state ?? (m.is_real ? "live" : "synthetic");
+  const realN = m.real_n ?? m.bench_n ?? 0;
+  const liveTh = m.live_threshold ?? 30;
+  const totalN = m.n_total ?? m.n;
   const realState =
-    benchN >= 30
+    dataState === "live"
       ? {
-          label: `Empirical Calibrated (${benchN} real)`,
+          label: `Live Calibrated (${realN} real ≥${liveTh})`,
           class: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-100",
         }
-      : benchN > 0
+      : dataState === "mixed"
         ? {
-            label: `Hybrid Grounding (${benchN} real + ${padN} pad)`,
+            label: `Mixed Grounding (${realN}/${liveTh} real · ${totalN} total)`,
             class: "bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-100",
           }
         : {
-            label: `Synthetic Pad (${padN} pad)`,
+            label: `Synthetic Preview (${totalN} synthetic · need ${liveTh} real)`,
             class: "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100",
           };
 
@@ -109,12 +112,18 @@ export function CalibrationPanel() {
           <strong className="text-foreground">Claim:</strong> cascade error rate ≤{" "}
           <span className="font-mono font-medium text-foreground">{m.error_bound.toFixed(4)}</span>{" "}
           at 95% confidence (Hoeffding LTT, grid 200, δ=0.05), threshold τ={m.threshold.toFixed(3)},
-          n={m.n} ({benchN} real + {padN} pad), ECE {ecePct}%.
+          n={m.n}
+          {m.rolling_window ? ` (rolling ${m.rolling_window})` : ` (total ${totalN})`} · state{" "}
+          {dataState} · real {realN}/{liveTh} · ECE {ecePct}%
+          {m.bound_broken ? " · ⚠️ bound broken" : ""}.
           <br />
           <strong className="text-foreground">Falsifiable prediction:</strong> In the next{" "}
           {challengeN} routed queries you should see ≤{" "}
           <strong className="text-foreground">{maxFails} failures</strong> (≈{failIfWrong}%); if you
-          see more, the bound is broken — report it as a break.
+          see more, the bound is broken — report it as a break.{" "}
+          {m.observed_failures != null ? (
+            <span className="font-mono">Observed fails: {m.observed_failures}</span>
+          ) : null}
         </p>
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           <span className="rounded-full bg-card border border-border px-2.5 py-1">

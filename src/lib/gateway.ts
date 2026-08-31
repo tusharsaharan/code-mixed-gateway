@@ -102,6 +102,7 @@ export interface SweepPoint {
 
 export interface CalibrationMetrics {
   n: number;
+  n_total?: number;
   alpha: number;
   threshold: number;
   error_bound: number;
@@ -111,10 +112,17 @@ export interface CalibrationMetrics {
   ece: number;
   reliability: { bin: number; accuracy: number; confidence: number; count: number }[];
   is_real?: boolean;
+  data_state?: "live" | "mixed" | "synthetic";
+  real_n?: number;
+  live_threshold?: number;
+  observed_failures?: number;
+  bound_broken?: boolean;
   real_path?: string;
   bench_n?: number;
   pad_n?: number;
   sweep?: SweepPoint[];
+  rolling_window?: number | null;
+  real_only?: boolean;
 }
 
 export async function fetchCalibrationMetrics(
@@ -496,4 +504,77 @@ export async function sendFeedback(
     was_correct: boolean;
     recalibrated: boolean;
   };
+}
+
+export interface RedteamResp {
+  original: string;
+  compressed: string;
+  spans: { kind: string; text: string; start: number; end: number }[];
+  token_original: number;
+  token_compressed: number;
+  ratio: number;
+  method: string;
+  verdict: "safe" | "break";
+  break_type: string | null;
+  critical_dropped: string[];
+  reward: number;
+}
+
+export async function fetchRedteam(text: string, method = "adaptive"): Promise<RedteamResp> {
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/compress/redteam`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, method }),
+  });
+  if (!res.ok) throw new Error(`Redteam ${res.status}: ${await res.text()}`);
+  return (await res.json()) as RedteamResp;
+}
+
+export interface ChallengesResp {
+  total_attempts: number;
+  recent_n: number;
+  breaks_recent: number;
+  break_rate_recent: number;
+  by_type: Record<string, number>;
+  recent: {
+    ts: number;
+    text: string;
+    compressed: string;
+    verdict: string;
+    break_type: string | null;
+    critical_dropped: string[];
+    method: string;
+  }[];
+  recent_breaks: ChallengesResp["recent"];
+}
+
+export async function fetchChallenges(limit = 20): Promise<ChallengesResp> {
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/compress/challenges?limit=${limit}`);
+  if (!res.ok) throw new Error(`Challenges ${res.status}: ${await res.text()}`);
+  return (await res.json()) as ChallengesResp;
+}
+
+export async function logChallenge(
+  text: string,
+  compressed: string,
+  verdict: string,
+  break_type: string | null,
+  critical_dropped: string[],
+  method = "adaptive",
+): Promise<{ ok: boolean; logged: boolean }> {
+  const res = await fetchWithTimeout(`${GATEWAY_URL}/v1/compress/challenge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text,
+      compressed,
+      verdict,
+      break_type,
+      critical_dropped,
+      method,
+      user_hash: "web-anon",
+    }),
+  });
+  if (!res.ok) throw new Error(`LogChallenge ${res.status}: ${await res.text()}`);
+  return (await res.json()) as { ok: boolean; logged: boolean };
 }

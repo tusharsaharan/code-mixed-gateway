@@ -15,10 +15,14 @@ import {
   fetchRewardAutopsy,
   fetchCompressCandidates,
   fetchPrompts,
+  fetchRedteam,
+  fetchChallenges,
   type DifficultyAnatomyResp,
   type RewardAutopsyResp,
   type CompressCandidatesResp,
   type PromptsResp,
+  type RedteamResp,
+  type ChallengesResp,
 } from "../lib/gateway";
 
 export const Route = createFileRoute("/demo")({
@@ -97,6 +101,9 @@ function DemoPage() {
   const [autopsy, setAutopsy] = useState<RewardAutopsyResp | null>(null);
   const [candidates, setCandidates] = useState<CompressCandidatesResp | null>(null);
   const [prompts, setPrompts] = useState<PromptsResp | null>(null);
+  const [redteam, setRedteam] = useState<RedteamResp | null>(null);
+  const [challenges, setChallenges] = useState<ChallengesResp | null>(null);
+  const [redteamLoading, setRedteamLoading] = useState(false);
 
   const [compView, setCompView] = useState<"shred" | "candidates">("shred");
   const [reproMode, setReproMode] = useState(false);
@@ -106,7 +113,7 @@ function DemoPage() {
 
   const abortRef = useRef<AbortController | null>(null);
 
-  // health probe + prompts
+  // health probe + prompts + challenges leaderboard
   useEffect(() => {
     let cancelled = false;
     fetchHealth()
@@ -119,6 +126,11 @@ function DemoPage() {
     fetchPrompts()
       .then((p) => {
         if (!cancelled) setPrompts(p);
+      })
+      .catch(() => null);
+    fetchChallenges(10)
+      .then((c) => {
+        if (!cancelled) setChallenges(c);
       })
       .catch(() => null);
     return () => {
@@ -215,6 +227,28 @@ function DemoPage() {
     }
   }, [input, method, useStream]);
 
+  const handleRedteam = useCallback(async () => {
+    const trimmed = input.trim();
+    if (!trimmed) {
+      setError("Please enter a prompt to test.");
+      return;
+    }
+    setRedteamLoading(true);
+    setError(null);
+    try {
+      const r = await fetchRedteam(trimmed, method);
+      setRedteam(r);
+      // refresh leaderboard (public gamified)
+      fetchChallenges(10)
+        .then(setChallenges)
+        .catch(() => null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRedteamLoading(false);
+    }
+  }, [input, method]);
+
   const handleClear = useCallback(() => {
     abortRef.current?.abort();
     setAnswer("");
@@ -224,6 +258,7 @@ function DemoPage() {
     setAnatomy(null);
     setAutopsy(null);
     setCandidates(null);
+    setRedteam(null);
     setTaskId(null);
     setError(null);
     setLoading(false);
@@ -723,6 +758,108 @@ function DemoPage() {
             </>
           )}
         </Card>
+      </div>
+
+      {/* Break my compressor — public gamified red-team */}
+      <div className="mt-6">
+        <SectionHeading kicker="Adversarial · public gamified" title="Break my compressor" />
+        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <Card>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              Try to make compression drop something critical — a negation like{" "}
+              <code className="rounded bg-secondary px-1 py-0.5">do NOT refund</code>, an order
+              number, a date, or a protected span. Every attempt is logged to the public leaderboard
+              — the best breaks become free adversarial eval for the writeup.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleRedteam}
+                disabled={redteamLoading || !input.trim()}
+                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {redteamLoading ? "Testing…" : "Test break my compressor"}
+              </button>
+              <span className="self-center text-xs text-muted-foreground">
+                Uses{" "}
+                <code className="rounded bg-secondary px-1 py-0.5">POST /v1/compress/redteam</code>
+              </span>
+            </div>
+            {redteam ? (
+              <div
+                className={`mt-4 rounded-xl border p-4 ${redteam.verdict === "break" ? "border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-800" : "border-emerald-300 bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-800"}`}
+              >
+                <p
+                  className={`text-sm font-semibold ${redteam.verdict === "break" ? "text-red-700 dark:text-red-300" : "text-emerald-700 dark:text-emerald-300"}`}
+                >
+                  {redteam.verdict === "break"
+                    ? `💥 Break! Dropped ${redteam.break_type} → ${redteam.critical_dropped.join(", ")}`
+                    : "✅ Safe — compressor held, nothing critical dropped"}
+                </p>
+                <p className="mt-2 font-mono text-xs leading-relaxed">
+                  <span className="text-muted-foreground">Compressed:</span>{" "}
+                  <span className="text-foreground">{redteam.compressed}</span>
+                </p>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">
+                  {redteam.token_original}→{redteam.token_compressed} tok · ratio{" "}
+                  {(redteam.ratio * 100).toFixed(1)}% · reward {redteam.reward.toFixed(3)}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-muted-foreground">
+                Tip: try <em>please do NOT cancel my order #4829</em> or{" "}
+                <em>yaar Rs. 2,500 ka refund mat karna</em> — negation is the hardest.
+              </p>
+            )}
+          </Card>
+          <Card>
+            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+              Public leaderboard
+            </p>
+            {!challenges ? (
+              <p className="mt-2 text-sm text-muted-foreground">Loading challenges…</p>
+            ) : (
+              <>
+                <div className="mt-3 flex gap-2 text-xs">
+                  <span className="rounded-full bg-secondary px-2.5 py-1">
+                    {challenges.total_attempts} attempts
+                  </span>
+                  <span className="rounded-full bg-red-100 px-2.5 py-1 text-red-900 dark:bg-red-900/30 dark:text-red-100">
+                    {challenges.breaks_recent} breaks (recent)
+                  </span>
+                  <span className="rounded-full bg-card border border-border px-2.5 py-1">
+                    {Math.round(challenges.break_rate_recent * 100)}% break rate
+                  </span>
+                </div>
+                {challenges.recent_breaks.length > 0 ? (
+                  <div className="mt-3 space-y-2 max-h-[160px] overflow-auto">
+                    {challenges.recent_breaks.slice(0, 5).map((c, i) => (
+                      <div
+                        key={i}
+                        className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs"
+                      >
+                        <span className="font-mono text-foreground">{c.text.slice(0, 70)}</span>
+                        <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-red-900 dark:bg-red-900/30 dark:text-red-100">
+                          {c.break_type}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    No breaks yet — be first to break it.
+                  </p>
+                )}
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  By type:{" "}
+                  {Object.entries(challenges.by_type)
+                    .map(([k, v]) => `${k}:${v}`)
+                    .join(" · ") || "—"}
+                </p>
+              </>
+            )}
+          </Card>
+        </div>
       </div>
 
       {/* answer */}

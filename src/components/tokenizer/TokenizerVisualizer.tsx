@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { fetchTokenEncode } from "../../lib/gateway";
 import {
   countTokensCl100k,
   countChar4Proxy,
@@ -47,6 +48,34 @@ function CostBar({ tokens, max }: { tokens: number | null; max: number }) {
 
 function VariantCard({ v, maxTokens }: { v: Variant; maxTokens: number }) {
   const { tokens, cost, tpc, chips } = useTokenStats(v.text);
+  const [serverTokens, setServerTokens] = useState<number | null>(null);
+  const [serverBackend, setServerBackend] = useState<string | null>(null);
+  const [serverCost, setServerCost] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tokenizer = v.label.includes("Devanagari") ? "muril" : "gpt4o_cl100k";
+    fetchTokenEncode(v.text, tokenizer)
+      .then((r) => {
+        if (!cancelled) {
+          setServerTokens(r.tokens);
+          setServerBackend(r.backend);
+          setServerCost(r.cost_premium_usd);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setServerTokens(null);
+          setServerBackend("offline");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [v.text, v.label]);
+
+  const delta = tokens != null && serverTokens != null ? serverTokens - tokens : null;
+
   return (
     <Card className="flex flex-col p-5">
       <div className="flex items-center justify-between">
@@ -78,8 +107,21 @@ function VariantCard({ v, maxTokens }: { v: Variant; maxTokens: number }) {
         <CostBar tokens={tokens} max={maxTokens || 1} />
         <div className="flex justify-between font-mono text-xs">
           <span className="text-muted-foreground">${cost.toFixed(7)} @ gpt-4o $0.0025/1k</span>
-          <span className="font-medium text-primary">{tokens ?? 0} tok</span>
+          <span className="font-medium text-primary">{tokens ?? 0} tok (client)</span>
         </div>
+        {serverTokens != null ? (
+          <div className="flex justify-between font-mono text-[11px]">
+            <span className="text-muted-foreground">
+              server {serverTokens} tok
+              {delta != null ? ` Δ${delta > 0 ? "+" : ""}${delta}` : ""} · {serverBackend}
+            </span>
+            <span className="text-muted-foreground">${(serverCost ?? 0).toFixed(7)}</span>
+          </div>
+        ) : serverBackend === "offline" ? (
+          <p className="font-mono text-[11px] text-amber-600">server offline — client-only count</p>
+        ) : (
+          <p className="font-mono text-[11px] text-muted-foreground">fetching server count…</p>
+        )}
       </div>
     </Card>
   );
