@@ -79,8 +79,8 @@ export function LiveTicker({ className = "" }: { className?: string }) {
                   <span className="text-primary">
                     saved $
                     {typeof r.estimated_cost_savings === "number"
-                      ? r.estimated_cost_savings.toFixed(4)
-                      : "0.003"}
+                      ? r.estimated_cost_savings.toFixed(6)
+                      : "0.003000"}
                   </span>
                   <span className="opacity-60">· just now</span>
                 </span>

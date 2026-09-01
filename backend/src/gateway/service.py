@@ -112,7 +112,7 @@ class Gateway:
 
     def build_meta(self, compressed, dispatch, user_text: str) -> GatewayMeta:
         premium_cost = self.router._estimate_cost(
-            "premium", dispatch.prompt_tokens, dispatch.completion_tokens
+            "premium", compressed.token_original, dispatch.completion_tokens
         )
         savings = max(0.0, premium_cost - dispatch.cost_est_usd)
         budget = self.budget_estimator.estimate(user_text)

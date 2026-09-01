@@ -149,25 +149,30 @@ export function CodeSwitchSlider({
                   <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
                   <Tooltip
                     contentStyle={{
-                      background: "hsl(var(--card))",
+                      backgroundColor: "hsl(var(--card))",
                       border: "1px solid hsl(var(--border))",
                       borderRadius: 12,
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
                     }}
+                    itemStyle={{ color: "hsl(var(--foreground))" }}
+                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
                   />
                   <Legend />
                   <Line
                     type="monotone"
                     dataKey="target"
                     name="Adaptive target kept%"
-                    stroke="hsl(var(--primary))"
-                    strokeWidth={2}
-                    dot
+                    stroke="#0d9488"
+                    strokeWidth={2.5}
+                    dot={{ fill: "#0d9488", r: 4 }}
+                    activeDot={{ r: 6 }}
                   />
                   <Line
                     type="monotone"
                     dataKey="kept"
                     name="Heuristic kept%"
-                    stroke="hsl(var(--muted-foreground))"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
                     strokeDasharray="4 4"
                     dot={false}
                   />
@@ -182,15 +187,18 @@ export function CodeSwitchSlider({
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip
                     contentStyle={{
-                      background: "hsl(var(--card))",
+                      backgroundColor: "hsl(var(--card))",
                       border: "1px solid hsl(var(--border))",
                       borderRadius: 12,
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
                     }}
+                    itemStyle={{ color: "hsl(var(--foreground))" }}
+                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
                   />
                   <Bar
                     dataKey="tokens"
                     name="Tokens"
-                    fill="hsl(var(--accent-foreground))"
+                    fill="#0d9488"
                     radius={[8, 8, 0, 0]}
                   />
                 </BarChart>

@@ -86,11 +86,9 @@ def adaptive_compress(
     # If already more compressed than target, keep it (target is upper bound on compression? actually target is kept)
     # If heuristic kept more than target → need to truncate to meet target
     # If heuristic kept less than target → it's already more aggressive than needed, but we prefer conservative → keep heuristic (don't expand)
-    # For high compression target (low kept), we truncate if needed.
-    if current_ratio <= target + 0.02:
-        # Heuristic already meets or beats target compression
-        res.method = "heuristic"  # type: ignore
-        # Tag as adaptive for reporting
+    # If heuristic already meets or beats target, or for short conversational sentences (<= 22 words)
+    # where naive right-truncation would cut off the main question/action, return heuristic result.
+    if current_ratio <= target + 0.05 or len(res.compressed.split()) <= 22:
         return CompressResult(
             original=res.original,
             compressed=res.compressed,
@@ -101,11 +99,9 @@ def adaptive_compress(
             method="heuristic",
         )
 
-    # Need to truncate to hit target kept ratio (aggressive case)
+    # Need to truncate to hit target kept ratio on longer multi-sentence inputs
     tok_o = res.token_original
-    # word-level truncation preserving order, but keep protected markers conceptually
     words = res.compressed.split()
-    # Estimate word -> token approx 1:1 for truncation, then refine
     keep_words = max(3, int(len(words) * (target / max(current_ratio, 0.01))))
     keep_words = min(len(words), keep_words)
     truncated = " ".join(words[:keep_words])
