@@ -8,7 +8,7 @@ routing, exposed as an OpenAI-compatible `/v1/chat/completions` endpoint.
 | #   | Module                              | File                                                                | Verifies                                                                 |
 | --- | ----------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | 1   | Data pipeline + tokenizer benchmark | `src/gateway/modules/m1_pipeline/`                                  | token counts across tokenizers, code-mix token inflation                 |
-| 2   | Compressor                          | `src/gateway/modules/m2_compressor/`                                | safety-span masking, heuristic/LLM compression, fail-closed re-injection |
+| 2   | Compressor                          | `src/gateway/modules/m2_compressor/`                                | trained LLMLingua-2 baseline (real when `.[compression]` installed) + heuristic/LLM, fail-closed re-injection |
 | 3   | Conformal calibrator                | `src/gateway/modules/m3_conformal/`                                 | split-conformal error-bound threshold (Hoeffding LTT, grid 200)          |
 | 4   | Cascade router                      | `src/gateway/modules/m4_router/`                                    | difficulty scoring + cheap/premium dispatch (pricing via `pricing.py`)   |
 | 5   | FastAPI gateway                     | `src/gateway/modules/m5_gateway/`                                   | OpenAI-compatible `/v1/chat/completions`, streaming + `x_gateway` meta   |
@@ -18,6 +18,7 @@ routing, exposed as an OpenAI-compatible `/v1/chat/completions` endpoint.
 | 9   | Reasoning budget                    | `src/gateway/modules/m9_reasoning/`                                 | thinking-token budget estimator + Hinglish-vs-English delta              |
 | 10  | Distill / reward                    | `src/gateway/modules/m10_train/`                                    | rejection-sampling distillation (CPU fallback) + task-correctness reward |
 | 11  | Calibration + pricing               | `src/gateway/modules/m11_calibration/` + `pricing.py` + `config.py` | ECE/reliability, central pricing (single source `pricing.py`)            |
+| 12  | Semantic similarity + gloss         | `src/gateway/modules/m12_semantic/`                                 | meaning-preserved similarity (`hash` offline / ST via `.[semantic]`), optional Hinglish→English gloss (`is_rule_based`) |
 
 ## Setup
 
@@ -32,6 +33,20 @@ pip install -e ".[tokenizers]"
 
 Copy `.env.example` to `.env`. With `GATEWAY_DRY_RUN=true` (default) everything runs
 offline with deterministic mocks — no API keys or GPUs required.
+
+Optional: real LLMLingua-2 weights for the trained baseline (module 2):
+
+```sh
+pip install torch --index-url https://download.pytorch.org/whl/cpu  # Windows: CPU-only, skips the CUDA bundle
+pip install -e ".[compression]"
+# one-time ~700MB download of microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank
+# on first use (cached under ~/.cache/huggingface)
+```
+
+Then `POST /v1/compress {"method": "llmlingua2"}` measures the real classifier,
+`/v1/eval/curve` reports it with `is_simulated:false`, and
+`GATEWAY_LLMLINGUA2=true` puts it in the live auto chain. Without the extra,
+the same paths fall back to the heuristic and stay honestly labelled.
 
 ## Run
 

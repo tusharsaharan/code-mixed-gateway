@@ -105,13 +105,15 @@ async def healthz():
         except Exception:
             pass
     is_real = bench_n > 0
+    from gateway.modules.m2_compressor.llmlingua2 import is_available as _llm2_available
     from gateway.tokenizer import TokenCounter
 
     return {
         "status": "ok",
         "dry_run": s.dry_run,
         "version": app.version,
-        "calibration_n": len(gw.calibration),
+        "llmlingua2_available": _llm2_available(),
+        "llmlingua2_enabled": s.llmlingua2,        "calibration_n": len(gw.calibration),
         "calibration_real": is_real,
         "calibration_bench_n": bench_n,
         "calibration_pad_n": pad_n,
@@ -125,12 +127,23 @@ async def healthz():
 
 class CompressRequest(BaseModel):
     text: str
-    method: str | None = None  # heuristic | distilled | model | auto
+    method: str | None = None  # heuristic | distilled | llmlingua2 | model | auto
+    rate: float | None = None  # kept-fraction for llmlingua2 (0.05..0.95)
 
 
 class ReasoningBudgetRequest(BaseModel):
     text: str
     english_gloss: str | None = None
+
+
+class SemanticSimilarityRequest(BaseModel):
+    a: str
+    b: str
+    threshold: float = 0.55
+
+
+class TranslateGlossRequest(BaseModel):
+    text: str
 
 
 @app.get("/v1/models")
@@ -253,6 +266,8 @@ async def compress_endpoint(req: CompressRequest) -> dict:
         res = gw.compressor.compress_heuristic(text)
     elif method == "distilled":
         res = gw.compressor.compress_distilled(text)
+    elif method == "llmlingua2":
+        res = gw.compressor.compress_llmlingua2(text, rate=req.rate)
     elif method == "model":
         res = await gw.compressor.compress_model(text)
     else:
@@ -262,10 +277,14 @@ async def compress_endpoint(req: CompressRequest) -> dict:
 
 @app.get("/v1/compress/methods")
 async def compress_methods() -> dict:
+    from gateway.modules.m2_compressor.llmlingua2 import DEFAULT_MODEL, is_available
+
     return {
-        "methods": ["heuristic", "distilled", "model", "auto"],
+        "methods": ["heuristic", "distilled", "llmlingua2", "model", "auto"],
         "default": "auto",
-        "notes": "auto uses distilled if available, else model when not dry_run, else heuristic",
+        "llmlingua2_available": is_available(),
+        "llmlingua2_model": DEFAULT_MODEL,
+        "notes": "auto uses distilled if available, else llmlingua2 when enabled, else model when not dry_run, else heuristic",
     }
 
 
@@ -294,6 +313,32 @@ async def reasoning_budget(req: ReasoningBudgetRequest) -> dict:
 async def reasoning_compare(hinglish: str, english: str) -> dict:
     gw = gateway()
     return gw.budget_comparator.compare(hinglish, english)
+
+
+@app.post("/v1/semantic/similarity")
+async def semantic_similarity(req: SemanticSimilarityRequest) -> dict:
+    from gateway.modules.m12_semantic.embeddings import get_embedder
+
+    emb = get_embedder()
+    sim = emb.similarity(req.a, req.b)
+    return {
+        "similarity": sim,
+        "preserves_meaning": sim >= req.threshold,
+        "threshold": req.threshold,
+        "backend": emb.backend,
+    }
+
+
+@app.post("/v1/translate/gloss")
+async def translate_gloss(req: TranslateGlossRequest) -> dict:
+    from gateway.modules.m12_semantic.translate import gloss_sync, translate_hinglish
+
+    gw = gateway()
+    if gw.settings.dry_run:
+        return gloss_sync(req.text).model_dump()
+    # Live: LLM translation via the cheap tier, embedding-verified, rule fallback.
+    res = await translate_hinglish(req.text, client=gw.router.cheap_client)
+    return res.model_dump()
 
 
 @app.get("/v1/tokenizer/report")

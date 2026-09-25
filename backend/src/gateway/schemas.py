@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 TIER = Literal["cheap", "premium"]
-METHOD = Literal["heuristic", "model", "passthrough", "distilled"]
+METHOD = Literal["heuristic", "model", "passthrough", "distilled", "llmlingua2"]
 
 
 class PromptRecord(BaseModel):
@@ -160,6 +160,8 @@ class EvalResult(BaseModel):
     bleu: float
     rouge_l: float
     task_success: float
+    semantic_sim: float = 0.0
+    prompt_sim: float = 0.0
     span_preserved: bool
     cost_usd: float
     baseline_cost_usd: float
@@ -173,6 +175,8 @@ class EvalSummary(BaseModel):
     mean_bleu: float = 0.0
     mean_rouge_l: float = 0.0
     mean_task_success: float = 0.0
+    mean_semantic_sim: float = 0.0
+    mean_prompt_sim: float = 0.0
     span_preserved_rate: float = 0.0
     total_cost_usd: float = 0.0
     total_baseline_usd: float = 0.0
