@@ -92,6 +92,35 @@ export async function compressText(
   return (await res.json()) as CompressResponse;
 }
 
+export interface GlossVariant {
+  text: string;
+  similarity: number;
+  gate: "pass" | "amber" | "reject";
+  source: "model" | "dictionary" | "passthrough";
+  engine: "embedding" | "llm" | "lexical";
+}
+
+export interface GlossResponse {
+  text: string;
+  model_used: boolean;
+  en?: GlossVariant;
+  hi?: GlossVariant;
+}
+
+export async function fetchGloss(text: string, target: string = "both"): Promise<GlossResponse> {
+  const res = await fetchWithTimeout(
+    `${GATEWAY_URL}/v1/gloss`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, target }),
+    },
+    20000,
+  );
+  if (!res.ok) throw new Error(`Gloss ${res.status}: ${await res.text()}`);
+  return (await res.json()) as GlossResponse;
+}
+
 export interface SweepPoint {
   tau: number;
   risk_hat: number;
@@ -187,6 +216,21 @@ export async function fetchHealth(): Promise<Record<string, unknown>> {
   return (await res.json()) as Record<string, unknown>;
 }
 
+export interface CRCMethodReport {
+  n: number;
+  mean_loss: number;
+  avg_kept_ratio: number;
+  crc_lambda_hat: number;
+  crc_risk_hat: number;
+  crc_bound: number;
+  crc_feasible: boolean;
+  crc_monotone: boolean;
+  failures: number;
+  risk_hat: number;
+  risk_bound: number;
+  correction: number;
+}
+
 export interface NovelReport {
   n_benchmark: number;
   tokenizer_tax: {
@@ -224,11 +268,13 @@ export interface NovelReport {
     items: unknown[];
   };
   conformal_compression: {
-    threshold_reward: number;
-    heuristic: { risk_hat: number; risk_bound: number; failures: number; n: number };
-    distilled: { risk_hat: number; risk_bound: number; failures: number; n: number };
-    adaptive: { risk_hat: number; risk_bound: number; failures: number; n: number };
+    alpha: number;
+    guarantee: string;
+    heuristic: CRCMethodReport;
+    distilled: CRCMethodReport;
+    adaptive: CRCMethodReport;
     best_method: string;
+    threshold_reward?: number; // deprecated legacy field, no longer sent
   };
   summary_bullets: string[];
   generated_at: string;

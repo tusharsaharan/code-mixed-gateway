@@ -32,10 +32,19 @@ class SafetySpan(BaseModel):
     end: int
 
 
+class DropRecord(BaseModel):
+    """A token dropped by the lexical compressor, with the rule that dropped it."""
+
+    token: str
+    category: str
+    rule: str
+
+
 class CompressResult(BaseModel):
     original: str
     compressed: str
     spans: list[SafetySpan] = Field(default_factory=list)
+    drops: list[DropRecord] = Field(default_factory=list)
     token_original: int = 0
     token_compressed: int = 0
     ratio: float = 1.0
@@ -47,6 +56,7 @@ class CalibSample(BaseModel):
     nonconformity: float = Field(ge=0.0, le=1.0)
     cheap_success: bool
     synthetic: bool = True
+    group: str = "all"  # Mondrian stratum, e.g. code-mix bucket low/mid/high
 
 
 class DifficultyFeature(BaseModel):

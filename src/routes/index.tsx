@@ -57,7 +57,7 @@ const PILLARS = [
   {
     tag: "2",
     title: "Conformal fidelity for compression",
-    body: "Not just routing — we conformal-certify the compressor itself (reward ≥0.85) with a 95% Hoeffding LTT bound. No prior code-mixed work does this.",
+    body: "Not just routing — we conformal-certify the compressor itself via Conformal Risk Control (E[fidelity loss] ≤ α, the same budget that governs routing). No prior code-mixed work does this.",
   },
   {
     tag: "3",

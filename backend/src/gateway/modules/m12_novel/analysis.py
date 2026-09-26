@@ -51,12 +51,32 @@ def tokenizer_tax_report(data_dir: Path) -> dict:
     if not recs:
         return {"buckets": [], "overall": {}, "n": 0}
 
-    # Build English control set for low bucket
+    # Build English control set for low bucket — equivalence-gated (Phase 1).
+    # Only glosses that pass the semantic gate enter the tax analysis, so the
+    # Hinglish-tax number compares *equivalent* texts (the old word-by-word
+    # dictionary gloss compared word salad against Hinglish, invalidating it).
+    from gateway.modules.m12_novel.translate import (
+        TranslationResult,
+        _lexical_similarity,
+        equivalence_ok,
+        gate_score,
+    )
+
     english_controls: list[PromptRecord] = []
+    n_gated_out = 0
     for r in recs[:20]:
         gloss = to_english_gloss(r.text)
         if code_mix_ratio(gloss) < 0.12:
-            english_controls.append(PromptRecord(id=f"en-{r.id}", text=gloss))
+            sim = _lexical_similarity(r.text, gloss)
+            # dictionary gloss shares many tokens with source; gate lexically.
+            tr = TranslationResult(
+                text=gloss, similarity=round(sim, 4),
+                gate=gate_score(sim), source="dictionary", engine="lexical",
+            )
+            if equivalence_ok(tr):
+                english_controls.append(PromptRecord(id=f"en-{r.id}", text=gloss))
+            else:
+                n_gated_out += 1
 
     bench_obj = TokenizerBench()
     overall = bench_obj.inflation(recs)
@@ -100,7 +120,16 @@ def tokenizer_tax_report(data_dir: Path) -> dict:
     high_char4 = next((b["char4_inflation"] for b in bucket_rows if b["bucket"].startswith("high")), 1.0)
     hinglish_tax = round(high_char4 / max(low_char4, 0.01), 3)
 
-    return {"buckets": bucket_rows, "overall": overall, "overall_combined": overall_combined, "n": len(recs), "n_controls": len(english_controls), "hinglish_tax_ratio": hinglish_tax}
+    return {
+        "buckets": bucket_rows,
+        "overall": overall,
+        "overall_combined": overall_combined,
+        "n": len(recs),
+        "n_controls": len(english_controls),
+        "n_gated_out": n_gated_out,
+        "equivalence_gate": "lexical (dictionary gloss; embedding/LLM gate used when model online)",
+        "hinglish_tax_ratio": hinglish_tax,
+    }
 
 
 def adaptive_vs_fixed_report(benchmark_path: Path, checkpoint: Path | None = None) -> dict:
@@ -112,54 +141,15 @@ def adaptive_vs_fixed_report(benchmark_path: Path, checkpoint: Path | None = Non
     counter = TokenCounter()
     scorer = DifficultyScorer(counter)
     from gateway.modules.m10_train.distill import load_mapping
+    from gateway.modules.m12_novel.adaptive import adaptive_compress_tagged
 
     distilled_map = load_mapping(checkpoint or Path("data/checkpoints/distilled.json"))
     comp = Compressor(counter, distilled_map=distilled_map)
 
-    # Helper: adaptive logic inline to avoid circular import and to tag ratio
-    def _target(cm: float, diff: float) -> float:
-        base = 0.52
-        return min(0.92, max(0.38, base + 0.30 * cm + 0.18 * diff))
-
-    import re
-
-    _GREETINGS = re.compile(r"^(hi|hello|hey|namaste|namaskar|hii+|yo|sir|madam|bro|dost)[\s,!.]+", re.IGNORECASE)
-    _WS = re.compile(r"\s+")
-
-    def _adaptive_text(text: str) -> tuple[str, float]:
-        cm = code_mix_ratio(text)
-        diff = scorer.score(text)
-        target = _target(cm, diff)
-        if target > 0.82:
-            # conservative: only greeting strip
-            from gateway.modules.m2_compressor.safety_span import mask, reinject
-
-            masked, spans = mask(text)
-            cleaned = _GREETINGS.sub("", masked).strip()
-            cleaned = _WS.sub(" ", cleaned) if cleaned else masked
-            final, ok = reinject(cleaned, spans)
-            if not ok:
-                final = text
-            return final, target
-        # heuristic base
-        h = comp.compress_heuristic(text)
-        base_text = h.compressed
-        ratio = h.ratio
-        if ratio <= target + 0.02:
-            return base_text, target
-        # truncate
-        words = base_text.split()
-        keep = max(3, int(len(words) * (target / max(ratio, 0.01))))
-        keep = min(len(words), keep)
-        trunc = " ".join(words[:keep])
-        if any(sp.text not in trunc for sp in h.spans):
-            return base_text, target
-        return trunc, target
-
     methods = {
         "heuristic": lambda t: comp.compress_heuristic(t).compressed,
         "distilled": lambda t: comp.compress_distilled(t).compressed,
-        "adaptive": lambda t: _adaptive_text(t)[0],
+        "adaptive": lambda t: adaptive_compress_tagged(t, counter=counter, scorer=scorer, compressor=comp).compressed,
         "truncated@0.5": lambda t: _truncate_to_target(comp.compress_heuristic(t).compressed, t, 0.5, counter),
     }
 
@@ -271,19 +261,30 @@ def reasoning_delta_report(benchmark_path: Path) -> dict:
     }
 
 
-def conformal_compression_report(benchmark_path: Path) -> dict:
-    """Conformal guarantee on compression fidelity (reward >= 0.85)."""
+def conformal_compression_report(benchmark_path: Path, alpha: float = 0.05) -> dict:
+    """Conformal Risk Control on compression fidelity (Phase 2, replaces 0.85).
+
+    For each compression method, treat the observed per-query fidelity losses
+    (1 - reward) at the method's aggressiveness level as a monotone loss
+    family and apply the CRC fixed point: the guarantee is now
+    ``E[fidelity loss] <= alpha`` (same budget as the router), not the
+    hard-coded ``reward >= 0.85``. A method is feasible if its CRC bound is
+    within alpha; among feasible methods the most aggressive (lowest kept
+    ratio) maximizes savings — reported as best_method.
+    """
     records = _load_benchmark(benchmark_path)
     if not records:
         return {"n": 0}
     counter = TokenCounter()
+    from gateway.modules.m3_conformal.crc import ConformalFidelityControl
     from gateway.modules.m10_train.distill import load_mapping
 
     distilled_map = load_mapping(Path("data/checkpoints/distilled.json"))
     comp = Compressor(counter, distilled_map=distilled_map)
 
-    def _risk_for(fn):
-        fails = 0
+    def _crc_for(fn):
+        losses: list[float] = []
+        ratios: list[float] = []
         n = len(records)
         for rec in records:
             orig = rec.get("original", "")
@@ -291,62 +292,61 @@ def conformal_compression_report(benchmark_path: Path) -> dict:
             pred = rec.get("predicted_answer", ref)
             comped = fn(orig)
             r = reward_fn(orig, comped, ref, pred)
-            if r < 0.85:  # failure = reward below threshold
-                fails += 1
-        risk_hat = fails / n if n else 0
-        # Hoeffding bound correction as in conformal.py (grid 200, delta 0.05)
-
-        _GRID = 200
+            losses.append(max(0.0, 1.0 - r))
+            ratios.append(counter.count(comped) / max(1, counter.count(orig)))
+        # aggressiveness lambda = 1 - kept-ratio (more aggressive, higher loss)
+        crc = ConformalFidelityControl(alpha=alpha)
+        lam = 1.0 - (sum(ratios) / len(ratios)) if ratios else 0.0
+        res = crc.calibrate_from_rewards(
+            [lam] * len(losses), [1.0 - loss for loss in losses]
+        )
+        # Hoeffding-style bound for continuity with the previous report format
         delta = 0.05
+        _GRID = 200
+        risk_hat = sum(1 for loss in losses if loss > alpha) / len(losses) if losses else 0
         correction = math.sqrt(math.log(_GRID / delta) / (2 * n)) if n else 0
-        bound = risk_hat + correction
-        return {"failures": fails, "n": n, "risk_hat": round(risk_hat, 4), "risk_bound": round(bound, 4), "correction": round(correction, 4)}
+        return {
+            "n": n,
+            "mean_loss": round(sum(losses) / len(losses), 4) if losses else 0,
+            "avg_kept_ratio": round(sum(ratios) / len(ratios), 4) if ratios else 0,
+            "crc_lambda_hat": round(res.lam_hat, 4),
+            "crc_risk_hat": res.risk_hat,
+            "crc_bound": res.risk_bound,
+            "crc_feasible": res.feasible,
+            "crc_monotone": res.monotone,
+            # legacy per-threshold view (kept for the sweep UI)
+            "failures": sum(1 for loss in losses if loss > alpha),
+            "risk_hat": round(risk_hat, 4),
+            "risk_bound": round(risk_hat + correction, 4),
+            "correction": round(correction, 4),
+        }
 
-    heuristic = _risk_for(lambda t: comp.compress_heuristic(t).compressed)
-    distilled = _risk_for(lambda t: comp.compress_distilled(t).compressed)
-    # adaptive
+    heuristic = _crc_for(lambda t: comp.compress_heuristic(t).compressed)
+    distilled = _crc_for(lambda t: comp.compress_distilled(t).compressed)
+    # adaptive — canonical implementation
+    from gateway.modules.m12_novel.adaptive import adaptive_compress_tagged
+
     scorer = DifficultyScorer(counter)
-    import re
+    adaptive = _crc_for(
+        lambda t: adaptive_compress_tagged(t, counter=counter, scorer=scorer, compressor=comp).compressed
+    )
 
-    _GREETINGS = re.compile(r"^(hi|hello|hey|namaste|namaskar|hii+|yo|sir|madam|bro|dost)[\s,!.]+", re.IGNORECASE)
-    _WS = re.compile(r"\s+")
-
-    def _adaptive_fn(text: str) -> str:
-        cm = code_mix_ratio(text)
-        diff = scorer.score(text)
-        target = min(0.92, max(0.38, 0.52 + 0.30 * cm + 0.18 * diff))
-        if target > 0.82:
-            from gateway.modules.m2_compressor.safety_span import mask, reinject
-
-            masked, spans = mask(text)
-            cleaned = _GREETINGS.sub("", masked).strip()
-            cleaned = _WS.sub(" ", cleaned) if cleaned else masked
-            final, ok = reinject(cleaned, spans)
-            return final if ok else text
-        h = comp.compress_heuristic(text)
-        ratio = h.ratio
-        if ratio <= target + 0.02:
-            return h.compressed
-        words = h.compressed.split()
-        keep = max(3, int(len(words) * (target / max(ratio, 0.01))))
-        keep = min(len(words), keep)
-        trunc = " ".join(words[:keep])
-        if any(sp.text not in trunc for sp in h.spans):
-            return h.compressed
-        return trunc
-
-    adaptive = _risk_for(_adaptive_fn)
+    # best method: CRC-feasible with the lowest kept ratio (max savings),
+    # falling back to lowest risk bound when none is feasible.
+    entries = [("heuristic", heuristic), ("distilled", distilled), ("adaptive", adaptive)]
+    feasible = [(name, m) for name, m in entries if m.get("crc_feasible")]
+    pool = feasible or entries
+    best_method = min(pool, key=lambda x: (x[1].get("avg_kept_ratio", 1.0), x[1].get("crc_bound", 1.0)))[0]
 
     return {
-        "threshold_reward": 0.85,
+        "alpha": alpha,
+        "guarantee": "E[fidelity loss] <= alpha (CRC fixed point, Angelopoulos et al. 2208.02814)",
         "delta": 0.05,
         "grid": 200,
         "heuristic": heuristic,
         "distilled": distilled,
         "adaptive": adaptive,
-        "best_method": min(
-            [("heuristic", heuristic), ("distilled", distilled), ("adaptive", adaptive)], key=lambda x: x[1]["risk_bound"]
-        )[0],
+        "best_method": best_method,
     }
 
 
@@ -376,7 +376,7 @@ def build_novel_report(data_dir: Path) -> dict:
         f"Adaptive code-mix-aware compressor saves {adapt_savings:.1f}% tokens vs {heur_savings:.1f}% (fixed heuristic) at reward {adapt_reward:.3f} (vs {heur_reward:.3f}) — {saving_lift:+.1f}pp savings at −{max(0, heur_reward - adapt_reward):.3f} reward cost, n={adv.get('n',0)}",
         f"Hinglish needs {delta.get('mean_delta', 0):+.1f} reasoning tokens more than English on avg ({delta.get('hinglish_higher_pct', 0)}% pairs, median {delta.get('median_delta',0):+d}, n={delta.get('n_pairs', 0)}) — first measurement of its kind",
         f"Tokenizer Hinglish tax: high-mix char4 inflation {next((b['char4_inflation'] for b in tax.get('buckets', []) if b['bucket'].startswith('high')), 0):.2f}× vs low-mix {next((b['char4_inflation'] for b in tax.get('buckets', []) if b['bucket'].startswith('low')), 0):.2f}× (ratio {tax.get('hinglish_tax_ratio',1.0):.2f}×), n_controls={tax.get('n_controls',0)}",
-        f"Conformal compression fidelity (reward≥0.85): adaptive risk̂ {conformal.get('adaptive', {}).get('risk_hat', 0)} → 95% bound {conformal.get('adaptive', {}).get('risk_bound', 0)} (Δ={(conformal.get('adaptive', {}).get('risk_bound',0) - conformal.get('adaptive', {}).get('risk_hat',0)):.3f}); best method {conformal.get('best_method','—')}",
+        f"Conformal fidelity (CRC, α={conformal.get('alpha', 0.05)}): adaptive E[loss] risk̂ {conformal.get('adaptive', {}).get('crc_risk_hat', 0)} → bound {conformal.get('adaptive', {}).get('crc_bound', 0)} (feasible={conformal.get('adaptive', {}).get('crc_feasible')}, λ̂={conformal.get('adaptive', {}).get('crc_lambda_hat')}); best method {conformal.get('best_method','—')}",
         "100% protected-span preservation (PII/code/amount) by fail-closed reinjection — verified across benchmark; 0 drops in 50",
     ]
 

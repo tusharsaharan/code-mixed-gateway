@@ -251,15 +251,18 @@ def build_synthetic_benchmark(n: int | None = None, seed: int = 0) -> list[dict]
     rows: list[dict] = []
     for idx in chosen:
         original = normalize(SEED_HINGLISH[idx])
-        # heuristic compressed preview (same as Compressor._heuristic_compress core)
+        # heuristic compressed preview via canonical lexicon prune (mirrors m2)
         protected = [sp.text for sp in detect_spans(original)]
         # keep reference generic if not in map
         ref = _reference_for(original)
-        # compressed: drop some fillers heuristically for preview (mirrors m2 logic)
-        tokens = original.split()
-        fillers = {"yaar", "matlab", "like", "basically", "actually", "arre", "na", "bhai"}
-        comp = " ".join(t for t in tokens if t.lower().strip(",.!?") not in fillers)
-        comp = re.sub(r"^(hi|hello|hey|namaste|namaskar|hii+|yo|sir|madam|bro|dost)[\s,!.]+", "", comp, flags=re.IGNORECASE).strip()
+        # compressed: guarded lexicon prune for preview (mirrors m2 logic)
+        from gateway.lexicons import prune as _prune
+        from gateway.modules.m2_compressor.safety_span import mask as _mask
+        from gateway.modules.m2_compressor.safety_span import reinject as _reinject
+
+        masked_preview, _spans = _mask(original)
+        comp, _drops = _prune(masked_preview)
+        comp, _ok = _reinject(comp, _spans)
         if not comp:
             comp = original
         rows.append(

@@ -9,10 +9,6 @@ from gateway.schemas import CompressResult
 from gateway.tokenizer import TokenCounter
 
 _WS = re.compile(r"\s+")
-_GREETINGS = re.compile(
-    r"^(hi|hello|hey|namaste|namaskar|hii+|yo|sir|madam|bro|dost)[\s,!.]+",
-    re.IGNORECASE,
-)
 
 
 def target_kept_ratio(code_mix: float, difficulty: float) -> float:
@@ -56,11 +52,12 @@ def adaptive_compress(
 
     # Conservative path: almost no compression, just hygiene
     if target > 0.82:
+        from gateway.lexicons import _strip_greeting
         from gateway.modules.m2_compressor.safety_span import mask, reinject
 
         masked_text, spans_list = mask(text)
         # only strip greeting, don't drop fillers
-        cleaned = _GREETINGS.sub("", masked_text).strip()
+        cleaned = _strip_greeting(masked_text)
         cleaned = _WS.sub(" ", cleaned)
         if not cleaned:
             cleaned = masked_text
@@ -73,6 +70,7 @@ def adaptive_compress(
             original=text,
             compressed=final,
             spans=spans_list,
+            drops=[],
             token_original=tok_o,
             token_compressed=max(1, tok_c),
             ratio=round(max(1, tok_c) / max(1, tok_o), 6),
@@ -93,6 +91,7 @@ def adaptive_compress(
             original=res.original,
             compressed=res.compressed,
             spans=res.spans,
+            drops=res.drops,
             token_original=res.token_original,
             token_compressed=res.token_compressed,
             ratio=res.ratio,
@@ -112,6 +111,7 @@ def adaptive_compress(
             original=res.original,
             compressed=res.compressed,
             spans=res.spans,
+            drops=res.drops,
             token_original=res.token_original,
             token_compressed=res.token_compressed,
             ratio=res.ratio,
@@ -122,6 +122,7 @@ def adaptive_compress(
         original=text,
         compressed=truncated,
         spans=res.spans,
+        drops=res.drops,
         token_original=tok_o,
         token_compressed=max(1, tok_c),
         ratio=round(max(1, tok_c) / max(1, tok_o), 6),
@@ -141,6 +142,7 @@ def adaptive_compress_tagged(  # noqa: E501
         original=r.original,
         compressed=r.compressed,
         spans=r.spans,
+        drops=r.drops,
         token_original=r.token_original,
         token_compressed=r.token_compressed,
         ratio=r.ratio,

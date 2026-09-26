@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchTokenEncode } from "../../lib/gateway";
+import { fetchGloss, fetchTokenEncode, type GlossVariant } from "../../lib/gateway";
 import {
   countTokensCl100k,
   countChar4Proxy,
@@ -10,7 +10,19 @@ import {
 import { toDevanagariApprox, toEnglishGloss } from "../../lib/hinglish";
 import { Card } from "../site/SiteChrome";
 
-type Variant = { label: string; text: string; accent: string };
+type Variant = {
+  label: string;
+  text: string;
+  accent: string;
+  badge?:
+    | {
+        similarity: number;
+        gate: GlossVariant["gate"];
+        source: GlossVariant["source"];
+        engine: GlossVariant["engine"];
+      }
+    | undefined;
+};
 
 function useTokenStats(text: string) {
   const [tokens, setTokens] = useState<number | null>(null);
@@ -46,6 +58,29 @@ function CostBar({ tokens, max }: { tokens: number | null; max: number }) {
   );
 }
 
+const GATE_STYLES: Record<string, string> = {
+  pass: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-100",
+  amber: "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100",
+  reject: "bg-rose-100 text-rose-900 dark:bg-rose-900/30 dark:text-rose-100",
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  model: "Ollama translation",
+  dictionary: "dictionary gloss (offline)",
+  passthrough: "untranslated (offline)",
+};
+
+function GateBadge({ badge }: { badge: NonNullable<Variant["badge"]> }) {
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 font-mono text-[10px] font-medium ${GATE_STYLES[badge.gate] ?? GATE_STYLES["amber"]}`}
+      title={`equivalence gate: ${badge.gate} (sim ${badge.similarity.toFixed(2)}, ${badge.engine} engine, source: ${SOURCE_LABEL[badge.source] ?? badge.source})`}
+    >
+      gate: {badge.gate} · sim {badge.similarity.toFixed(2)}
+    </span>
+  );
+}
+
 function VariantCard({ v, maxTokens }: { v: Variant; maxTokens: number }) {
   const { tokens, cost, tpc, chips } = useTokenStats(v.text);
   const [serverTokens, setServerTokens] = useState<number | null>(null);
@@ -78,7 +113,7 @@ function VariantCard({ v, maxTokens }: { v: Variant; maxTokens: number }) {
 
   return (
     <Card className="flex flex-col p-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${v.accent}`}>
           {v.label}
         </span>
@@ -86,6 +121,11 @@ function VariantCard({ v, maxTokens }: { v: Variant; maxTokens: number }) {
           {tokens ?? "…"} tok · {tpc.toFixed(3)}/char
         </span>
       </div>
+      {v.badge ? (
+        <div className="mt-2">
+          <GateBadge badge={v.badge} />
+        </div>
+      ) : null}
       <p className="mt-3 min-h-[48px] text-sm leading-relaxed">{v.text || "—"}</p>
       <div className="mt-3 flex flex-wrap gap-1">
         {chips.map((c) => (
@@ -127,6 +167,15 @@ function VariantCard({ v, maxTokens }: { v: Variant; maxTokens: number }) {
   );
 }
 
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 export function TokenizerVisualizer({
   initialHinglish = "yaar mera hostel ka wifi slow hai, complaint kahan karun? kal assignment submit karna hai",
   compact = false,
@@ -135,14 +184,69 @@ export function TokenizerVisualizer({
   compact?: boolean;
 }) {
   const [hinglish, setHinglish] = useState(initialHinglish);
-  const english = useMemo(() => toEnglishGloss(hinglish), [hinglish]);
-  const devanagari = useMemo(() => toDevanagariApprox(hinglish), [hinglish]);
-  const variants: Variant[] = useMemo(
-    () => [
+  const debounced = useDebounced(hinglish, 600);
+
+  // Offline fallbacks (deterministic client-side approximations)
+  const englishFallback = useMemo(() => toEnglishGloss(debounced), [debounced]);
+  const devanagariFallback = useMemo(() => toDevanagariApprox(debounced), [debounced]);
+
+  // Gated backend translations (Ollama when online; dictionary/passthrough when not)
+  const [enGloss, setEnGloss] = useState<GlossVariant | null>(null);
+  const [hiGloss, setHiGloss] = useState<GlossVariant | null>(null);
+  const [glossLoading, setGlossLoading] = useState(true);
+  const [glossOnline, setGlossOnline] = useState(true);
+
+  useEffect(() => {
+    if (!debounced.trim()) {
+      setGlossLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setGlossLoading(true);
+    fetchGloss(debounced)
+      .then((r) => {
+        if (cancelled) return;
+        setEnGloss(r.en ?? null);
+        setHiGloss(r.hi ?? null);
+        setGlossOnline(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setEnGloss(null);
+        setHiGloss(null);
+        setGlossOnline(false);
+      })
+      .finally(() => {
+        if (!cancelled) setGlossLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debounced]);
+
+  const variants: Variant[] = useMemo(() => {
+    const enBadge = enGloss
+      ? {
+          similarity: enGloss.similarity,
+          gate: enGloss.gate,
+          source: enGloss.source,
+          engine: enGloss.engine,
+        }
+      : undefined;
+    const hiBadge = hiGloss
+      ? {
+          similarity: hiGloss.similarity,
+          gate: hiGloss.gate,
+          source: hiGloss.source,
+          engine: hiGloss.engine,
+        }
+      : undefined;
+    return [
       {
         label: "English",
-        text: english,
+        text: enGloss?.text || englishFallback,
         accent: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-100",
+        badge: enBadge,
       },
       {
         label: "Hinglish (roman)",
@@ -151,12 +255,12 @@ export function TokenizerVisualizer({
       },
       {
         label: "Devanagari Hindi",
-        text: devanagari,
+        text: hiGloss?.text || devanagariFallback,
         accent: "bg-violet-100 text-violet-900 dark:bg-violet-900/30 dark:text-violet-100",
+        badge: hiBadge,
       },
-    ],
-    [english, hinglish, devanagari],
-  );
+    ];
+  }, [enGloss, hiGloss, englishFallback, devanagariFallback, hinglish]);
 
   // Compute max tokens for bar scale
   const [maxTok, setMaxTok] = useState(40);
@@ -201,6 +305,15 @@ export function TokenizerVisualizer({
             </button>
           ))}
         </div>
+        <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+          {glossLoading
+            ? "translating via gateway…"
+            : glossOnline
+              ? enGloss?.source === "model" || hiGloss?.source === "model"
+                ? "translations equivalence-gated via Ollama + semantic similarity gate"
+                : "gateway online — translations fell back to dictionary (start Ollama for real translations)"
+              : "gateway offline — showing deterministic offline approximations"}
+        </p>
       </div>
       <div className="grid gap-4 md:grid-cols-3">
         {variants.map((v) => (
@@ -212,9 +325,10 @@ export function TokenizerVisualizer({
           Counts via{" "}
           <code className="rounded bg-secondary px-1 py-0.5">js-tiktoken cl100k_base</code> (GPT-4o)
           entirely client-side + cost at{" "}
-          <code className="rounded bg-secondary px-1 py-0.5">pricing.py 2026-08-28</code>.
-          Devanagari is an approximate transliteration for visual proof — backend MuRIL/HF
-          tokenizers give the full Indic truth (see{" "}
+          <code className="rounded bg-secondary px-1 py-0.5">pricing.py 2026-08-28</code>. English
+          and Devanagari variants are real model translations gated by semantic equivalence (sim ≥
+          0.75 pass, 0.50–0.75 amber, else dictionary fallback) — the badge on each card reports the
+          gate verdict, so the three languages are compared as <em>equivalent</em> texts (see{" "}
           <a href="/tokenizer" className="font-medium text-primary hover:underline">
             /tokenizer
           </a>

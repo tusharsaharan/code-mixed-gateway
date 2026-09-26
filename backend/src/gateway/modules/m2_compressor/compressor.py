@@ -1,54 +1,23 @@
 from __future__ import annotations
 
-import re
-
+from gateway.lexicons import prune
 from gateway.llm import BaseLLMClient
 from gateway.modules.m2_compressor.prompts import compression_messages
 from gateway.modules.m2_compressor.safety_span import mask, reinject
 from gateway.schemas import CompressResult, SafetySpan
 from gateway.tokenizer import TokenCounter
 
-_FILLERS = {
-    "yaar",
-    "matlab",
-    "like",
-    "basically",
-    "actually",
-    "arre",
-    "na",
-    "bhai",
-    "sun",
-    "dekho",
-    "you",
-    "know",
-}
-_GREETINGS = re.compile(
-    r"^(hi|hello|hey|namaste|namaskar|hii+|yo|sir|madam|bro|dost)[\s,!.]+",
-    re.IGNORECASE,
-)
-_WS = re.compile(r"\s+")
-
-
-def _heuristic_compress(text: str) -> str:
-    tokens = _WS.sub(" ", text).split()
-    if not tokens:
-        return text
-    tokens = [t for t in tokens if t.lower().strip(",.!?") not in _FILLERS]
-    while tokens and tokens[0].lower().strip(",.!?") in _FILLERS:
-        tokens.pop(0)
-    joined = " ".join(tokens)
-    return _GREETINGS.sub("", joined).strip()
-
 
 class Compressor:
     """Hinglish prompt compressor (distilled → llmlingua2 → model → heuristic).
 
-    Heuristic is the instant offline default. LLMLingua-2 is the trained
-    baseline from the proposal: a distilled token-classifier (BERT-base
-    multilingual, CPU-runnable) that genuinely compresses code-mixed text
-    instead of simulating it. Protected spans are masked to [[PSi]] markers
-    and force-preserved, because raw classifier output mangles entities
-    (user@example.com → "user example com").
+    Heuristic fast path is the canonical lexicon-based prune (gateway.lexicons):
+    guarded filler/vocative removal with per-drop audit records. LLMLingua-2 is
+    the trained baseline: a distilled token-classifier (BERT-base multilingual,
+    CPU-runnable); protected spans are masked to [[PSi]] markers and
+    force-preserved because raw classifier output mangles entities
+    (user@example.com → "user example com"). Optional local-model path
+    (Ollama) and distilled-checkpoint path are unchanged.
     """
 
     def __init__(
@@ -73,6 +42,7 @@ class Compressor:
         compressed: str,
         spans: list[SafetySpan],
         method: str,
+        drops: list | None = None,
     ) -> CompressResult:
         tok_orig = self.counter.count(original)
         tok_comp = self.counter.count(compressed)
@@ -81,6 +51,7 @@ class Compressor:
             original=original,
             compressed=compressed,
             spans=spans,
+            drops=drops or [],
             token_original=tok_orig,
             token_compressed=tok_comp,
             ratio=round(tok_comp / max(1, tok_orig), 6),
@@ -108,11 +79,11 @@ class Compressor:
 
     def compress_heuristic(self, text: str) -> CompressResult:
         masked, spans = mask(text)
-        compressed_masked = _heuristic_compress(masked)
+        compressed_masked, drops = prune(masked)
         final, ok = reinject(compressed_masked, spans)
         if not ok:
             final = text
-        return self._result(text, final, spans, "heuristic")
+        return self._result(text, final, spans, "heuristic", drops)
 
     def compress_llmlingua2(self, text: str, rate: float | None = None) -> CompressResult:
         """Trained-baseline compression. Falls back to heuristic (honestly
@@ -140,7 +111,7 @@ class Compressor:
     async def compress_model(self, text: str) -> CompressResult:
         masked, spans = mask(text)
         if self.client is None:
-            final = _heuristic_compress(masked)
+            compressed_masked, drops = prune(masked)
             method = "heuristic"
         else:
             result = await self.client.chat(compression_messages(masked), temperature=0.0)
@@ -148,7 +119,11 @@ class Compressor:
             method = "model"
             if not ok:
                 final = text
-        return self._result(text, final, spans, method)
+            return self._result(text, final, spans, method)
+        final, ok = reinject(compressed_masked, spans)
+        if not ok:
+            final = text
+        return self._result(text, final, spans, method, drops)
 
     async def compress(self, text: str) -> CompressResult:
         if text in self.distilled_map:

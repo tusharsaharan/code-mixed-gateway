@@ -148,7 +148,7 @@ function ResultsPage() {
         <Stat
           k="Fidelity bound (95%)"
           v={data.conformal_compression.adaptive.risk_bound.toFixed(3)}
-          sub={`risk̂ ${data.conformal_compression.adaptive.risk_hat.toFixed(3)} on n=${data.conformal_compression.adaptive.n} (reward ≥${data.conformal_compression.threshold_reward})`}
+          sub={`CRC: E[loss] ≤ ${data.conformal_compression.alpha} (risk̂ ${data.conformal_compression.adaptive.risk_hat.toFixed(3)}, n=${data.conformal_compression.adaptive.n})`}
         />
       </div>
 
@@ -482,15 +482,17 @@ function ResultsPage() {
           />
           <p className="mb-6 max-w-3xl text-sm leading-relaxed text-muted-foreground">
             Beyond routing, we wrap{" "}
-            <strong className="text-foreground">compression fidelity itself</strong> in conformal
-            risk control (Hoeffding LTT, grid 200, δ=0.05). For threshold{" "}
-            <code className="rounded bg-secondary px-1 py-0.5">reward ≥ 0.85</code>, the adaptive
-            compressor has{" "}
+            <strong className="text-foreground">compression fidelity itself</strong> in Conformal
+            Risk Control (Angelopoulos et al., 2208.02814): the aggressiveness level λ̂ is the CRC
+            fixed point — the most aggressive compression whose <em>expected fidelity loss</em>{" "}
+            stays within the same error budget α = {data.conformal_compression.alpha} that governs
+            routing. The 0.85 reward threshold is gone; the adaptive compressor now carries{" "}
             <strong className="text-foreground">
-              risk̂ {data.conformal_compression.adaptive.risk_hat.toFixed(3)} → 95% upper bound{" "}
-              {data.conformal_compression.adaptive.risk_bound.toFixed(3)}
-            </strong>
-            . This is a finite-sample, distribution-free guarantee — not a tuned threshold.
+              risk̂ {data.conformal_compression.adaptive.risk_hat.toFixed(3)} → CRC bound{" "}
+              {data.conformal_compression.adaptive.crc_bound.toFixed(3)}
+            </strong>{" "}
+            (feasible: {String(data.conformal_compression.adaptive.crc_feasible)}). This is a
+            finite-sample, distribution-free guarantee on the mean — not a tuned threshold.
           </p>
           <div className="grid gap-6 lg:grid-cols-3">
             {[

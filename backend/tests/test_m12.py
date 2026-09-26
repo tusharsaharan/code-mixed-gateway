@@ -1,10 +1,16 @@
 import json
 
 import pytest
+from fastapi.testclient import TestClient
 
 from gateway.modules.m1_pipeline.hinglish import code_mix_ratio
+from gateway.modules.m5_gateway.main import app
+from gateway.modules.m7_eval.evaluate import HinglishEvaluator
 from gateway.modules.m12_novel.adaptive import adaptive_compress, target_kept_ratio
 from gateway.modules.m12_novel.gloss import HINGLISH_TO_EN, to_english_gloss
+from gateway.modules.m12_semantic.embeddings import SemanticEmbedder, get_embedder
+from gateway.modules.m12_semantic.translate import gloss_sync, rule_gloss, translate_hinglish
+from gateway.schemas import EvalRecord
 from gateway.tokenizer import TokenCounter
 
 
@@ -169,15 +175,20 @@ def test_conformal_compression_report(tmp_path):
 
     bench = tmp_path / "benchmark.jsonl"
     write_benchmark(bench, n=8, seed=4)
-    # need data/checkpoints/distilled.json fallback exists in repo; ensure write_benchmark used owns counter
     report = conformal_compression_report(bench)
-    assert "threshold_reward" in report
-    assert report["threshold_reward"] == 0.85
+    # Phase 2: CRC guarantee replaces the hard-coded 0.85 reward threshold
+    assert "alpha" in report
+    assert "guarantee" in report
+    assert "threshold_reward" not in report
     for key in ["heuristic", "distilled", "adaptive"]:
         assert key in report
-        assert 0 <= report[key]["risk_hat"] <= 1.0
-        assert report[key]["risk_bound"] >= report[key]["risk_hat"]
-        assert report[key]["n"] == 8
+        m = report[key]
+        assert 0 <= m["risk_hat"] <= 1.0
+        assert m["risk_bound"] >= m["risk_hat"]
+        assert m["n"] == 8
+        assert "crc_lambda_hat" in m
+        assert "crc_bound" in m
+        assert "crc_feasible" in m
     assert report["best_method"] in {"heuristic", "distilled", "adaptive"}
 
 
@@ -379,13 +390,6 @@ def test_new_endpoints_via_testclient():
     assert len(data_cal["sweep"]) == 201
 
 # --- merged from research/shivam: m12 semantic tests ---
-from fastapi.testclient import TestClient
-
-from gateway.modules.m12_semantic.embeddings import SemanticEmbedder, get_embedder
-from gateway.modules.m12_semantic.translate import gloss_sync, rule_gloss, translate_hinglish
-from gateway.modules.m5_gateway.main import app
-from gateway.modules.m7_eval.evaluate import HinglishEvaluator
-from gateway.schemas import EvalRecord
 
 
 @pytest.fixture(scope="module")

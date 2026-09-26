@@ -115,8 +115,8 @@ async def healthz():
         except Exception:
             pass
     is_real = bench_n > 0
-    from gateway.modules.m3_conformal.calibration_store import data_state
     from gateway.modules.m2_compressor.llmlingua2 import is_available as _llm2_available
+    from gateway.modules.m3_conformal.calibration_store import data_state
     from gateway.tokenizer import TokenCounter
 
     ds = data_state(gw.calibration)
@@ -145,6 +145,11 @@ class CompressRequest(BaseModel):
     text: str
     method: str | None = None  # heuristic | distilled | llmlingua2 | model | auto
     rate: float | None = None  # kept-fraction for llmlingua2 (0.05..0.95)
+
+
+class GlossRequest(BaseModel):
+    text: str
+    target: str = "both"  # en | hi | both
 
 
 class ReasoningBudgetRequest(BaseModel):
@@ -293,84 +298,23 @@ async def compress_endpoint(req: CompressRequest) -> dict:
     elif method == "model":
         res = await gw.compressor.compress_model(text)
     elif method == "adaptive":
-        # Mixture-aware adaptive (novel)
+        # Mixture-aware adaptive (novel) — canonical implementation
+        from gateway.modules.m12_novel.adaptive import adaptive_compress_tagged as _adaptive
+
+        score = gw.router.scorer.score(text)
+        res = _adaptive(text, counter=gw.counter, scorer=gw.router.scorer, compressor=gw.compressor)
+        d = res.model_dump()
+        d["method"] = "adaptive"
+        d["adaptive_target"] = None
+        d["code_mix_ratio"] = None
+        d["difficulty"] = score
+        # annotate with the actual computed values (no re-implementation)
         from gateway.modules.m1_pipeline.hinglish import code_mix_ratio as _cm
         from gateway.modules.m12_novel.adaptive import target_kept_ratio as _tgt
 
-        score = gw.router.scorer.score(text)
         cm = _cm(text)
-        tgt = _tgt(cm, score)
-        # Reuse novel adaptive logic (import to avoid circular)
-        import re as _re
-
-        from gateway.modules.m2_compressor.safety_span import mask as _mask
-        from gateway.modules.m2_compressor.safety_span import reinject as _reinject
-
-        _GREET = _re.compile(r"^(hi|hello|hey|namaste|namaskar|hii+|yo|sir|madam|bro|dost)[\s,!.]+", _re.IGNORECASE)
-        _WS2 = _re.compile(r"\s+")
-        if tgt > 0.82:
-            masked, spans = _mask(text)
-            cleaned = _GREET.sub("", masked).strip()
-            cleaned = _WS2.sub(" ", cleaned) if cleaned else masked
-            final, ok = _reinject(cleaned, spans)
-            if not ok:
-                final = text
-            from gateway.schemas import CompressResult as _CR
-
-            tok_o = gw.counter.count(text)
-            tok_c = gw.counter.count(final)
-            res = _CR(
-                original=text,
-                compressed=final,
-                spans=spans,
-                token_original=tok_o,
-                token_compressed=max(1, tok_c),
-                ratio=round(max(1, tok_c) / max(1, tok_o), 6),
-                method="heuristic",
-            )
-            d = res.model_dump()
-            d["method"] = "adaptive"
-            d["adaptive_target"] = tgt
-            d["code_mix_ratio"] = cm
-            d["difficulty"] = score
-            return d
-        # else use heuristic+truncate adaptive path
-        base = gw.compressor.compress_heuristic(text)
-        if base.ratio <= tgt + 0.02:
-            d = base.model_dump()
-            d["method"] = "adaptive"
-            d["adaptive_target"] = tgt
-            d["code_mix_ratio"] = cm
-            d["difficulty"] = score
-            return d
-        words = base.compressed.split()
-        keep = max(3, int(len(words) * (tgt / max(base.ratio, 0.01))))
-        keep = min(len(words), keep)
-        trunc = " ".join(words[:keep])
-        if any(sp.text not in trunc for sp in base.spans):
-            d = base.model_dump()
-            d["method"] = "adaptive"
-            d["adaptive_target"] = tgt
-            d["code_mix_ratio"] = cm
-            d["difficulty"] = score
-            return d
-        from gateway.schemas import CompressResult as _CR2
-
-        tok_c = gw.counter.count(trunc)
-        res2 = _CR2(
-            original=text,
-            compressed=trunc,
-            spans=base.spans,
-            token_original=base.token_original,
-            token_compressed=max(1, tok_c),
-            ratio=round(max(1, tok_c) / max(1, base.token_original), 6),
-            method="heuristic",
-        )
-        d = res2.model_dump()
-        d["method"] = "adaptive"
-        d["adaptive_target"] = tgt
+        d["adaptive_target"] = _tgt(cm, score)
         d["code_mix_ratio"] = cm
-        d["difficulty"] = score
         return d
     else:
         res = await gw.compressor.compress(text)
@@ -391,6 +335,80 @@ async def compress_methods() -> dict:
             "else heuristic; adaptive is code-mix-aware (novel)"
         ),
     }
+
+
+_gloss_client_cache: dict[str, object] = {}
+
+
+def _gloss_client():
+    """Local (Ollama) client for translation; None in dry-run (dictionary mode)."""
+    s = get_settings()
+    if s.dry_run:
+        return None
+    key = f"{s.local.model}@{s.local.base_url}"
+    if key not in _gloss_client_cache:
+        from gateway.llm import build_client as _bc
+
+        _gloss_client_cache[key] = _bc(
+            "local",
+            model=s.local.model,
+            base_url=s.local.base_url,
+            api_key=s.local.api_key,
+            dry_run=False,
+            timeout=s.timeout_s,
+        )
+    return _gloss_client_cache[key]
+
+
+@app.post("/v1/gloss")
+async def gloss_endpoint(req: GlossRequest) -> dict:
+    """Equivalence-gated translation (Phase 1).
+
+    Real model translation via Ollama when available, gated by a semantic
+    similarity threshold (embedding > LLM-judge > lexical engines). Falls back
+    to the deterministic dictionary gloss with gate='reject'/'dictionary' when
+    the model is offline or the translation fails the gate.
+    """
+    from gateway.modules.m12_novel.gloss import to_english_gloss
+    from gateway.modules.m12_novel.translate import translate
+
+    text = (req.text or "").strip()
+    if not text:
+        raise ValueError("empty text: provide non-empty 'text' field")
+    target = (req.target or "both").lower()
+    if target not in ("en", "hi", "both"):
+        raise ValueError("target must be one of: en, hi, both")
+
+    client = _gloss_client()
+
+    async def _dict_en(t: str) -> str:
+        return to_english_gloss(t)
+
+    import asyncio
+
+    tasks = []
+    keys = []
+    if target in ("en", "both"):
+        tasks.append(translate(text, "en", client=client, dictionary_fallback=_dict_en))
+        keys.append("en")
+    if target in ("hi", "both"):
+        # hi has no offline dictionary — passthrough (labeled honestly)
+        tasks.append(translate(text, "hi", client=client, dictionary_fallback=None))
+        keys.append("hi")
+    results = await asyncio.gather(*tasks)
+    out = {
+        "text": text,
+        "model_used": client is not None,
+    }
+    for key, tr in zip(keys, results, strict=True):
+        out[key] = {
+            "text": tr.text,
+            "similarity": tr.similarity,
+            "gate": tr.gate,
+            "source": tr.source,
+            "engine": tr.engine,
+        }
+    return out
 
 
 def _get_git_commit_sha() -> str:
@@ -1163,6 +1181,76 @@ async def calibration_metrics(
 
 class CalibrationIngestRequest(BaseModel):
     samples: list[dict]
+
+
+class ThresholdSweepRequest(BaseModel):
+    alphas: list[float] | None = None
+    include_isotonic: bool = True
+
+
+@app.post("/v1/threshold/sweep2d")
+async def threshold_sweep2d(req: ThresholdSweepRequest) -> dict:
+    """Alpha (error-budget) sweep with knee detection — the sweet-spot answer.
+
+    For each candidate alpha, refit the routing threshold on the current
+    calibration set and report the guaranteed bound, realized risk, and
+    cheap-tier share (cost proxy). The knee of the alpha-vs-coverage curve
+    marks diminishing returns — the evidence-based default for the 5% budget.
+
+    Optionally includes isotonic calibration of the difficulty score
+    (score -> P(cheap failure)) and its ECE, i.e. the regression-learning view
+    of the same calibration data.
+    """
+    gw = gateway()
+    cal = gw.calibrator
+
+    alphas = req.alphas or [0.01, 0.02, 0.03, 0.05, 0.075, 0.10, 0.15]
+    alphas = sorted({round(float(a), 4) for a in alphas})
+    sweep = cal.alpha_sweep(alphas=alphas)
+
+    out: dict = {
+        "current_alpha": cal.alpha,
+        "current_threshold": cal.threshold,
+        "method": cal.method,
+        "is_mondrian": cal.is_mondrian,
+        "group_thresholds": cal.group_thresholds,
+        "rows": sweep["rows"],
+        "knee_alpha": sweep["knee"],
+        "note": (
+            "knee_alpha = max-curvature point of alpha vs cheap-share (diminishing "
+            "returns); choose deployment alpha from this frontier, not by convention"
+        ),
+    }
+
+    if req.include_isotonic and gw.calibration:
+        from gateway.modules.m3_conformal.isotonic import IsotonicCalibrator
+
+        scores = [c.nonconformity for c in gw.calibration]
+        failures = [not c.cheap_success for c in gw.calibration]
+        iso = IsotonicCalibrator().fit(scores, failures)
+        ece = iso.ece(scores, failures)
+        curve = iso.calibration_curve(scores, failures)
+        # groupwise isotonic ECE when Mondrian strata present
+        groups = sorted({c.group for c in gw.calibration})
+        group_ece: dict[str, float] = {}
+        for g in groups:
+            sub = [(c.nonconformity, not c.cheap_success) for c in gw.calibration if c.group == g]
+            if len(sub) >= 2:
+                gs = [s for s, _ in sub]
+                gf = [f for _, f in sub]
+                group_ece[g] = IsotonicCalibrator().fit(gs, gf).ece(gs, gf)
+        out["isotonic"] = {
+            "fitted": iso.fitted,
+            "n": len(scores),
+            "ece": round(ece, 6),
+            "group_ece": {k: round(v, 6) for k, v in group_ece.items()},
+            "calibration_curve": curve,
+            "predict_examples": {
+                str(s): round(iso.predict(s), 4)
+                for s in (0.1, 0.3, 0.5, 0.7, 0.9)
+            },
+        }
+    return out
 
 
 @app.post("/v1/calibration/ingest")

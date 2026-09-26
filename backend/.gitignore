@@ -24,3 +24,5 @@ data/raw/
 data/processed/
 experiments/token_study/config.yaml
 results/
+# autonomous router-track pipeline (free Groq labels, proxy tiers) — all generated
+data/router_track/

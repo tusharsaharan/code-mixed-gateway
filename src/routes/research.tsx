@@ -39,7 +39,7 @@ const PILLARS = [
   {
     tag: "2",
     title: "Conformal fidelity guarantee for compression",
-    what: "Wrap compression fidelity (reward ≥0.85) in Hoeffding LTT conformal risk control (grid 200, δ=0.05), producing a 95% upper bound — not just a point estimate — on how often compression preserves task correctness.",
+    what: "Wrap compression fidelity in Conformal Risk Control (CRC fixed point, Angelopoulos et al. 2208.02814): the aggressiveness λ̂ is learned so E[fidelity loss] ≤ α — the same error budget that governs routing — replacing the hand-tuned reward≥0.85 constant with a finite-sample guarantee on the mean.",
     novel:
       "Prior work conformal-certifies routing; we certify compression fidelity itself — first on code-mixed text. Measured: adaptive risk̂ 0.02 → bound 0.308 on n=50. The guarantee is distribution-free and finite-sample.",
     fallback:

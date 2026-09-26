@@ -5,10 +5,11 @@ import random
 import re
 from pathlib import Path
 
+from gateway.lexicons import filler_set
 from gateway.modules.m10_train.reward import reward
 
 _WS = re.compile(r"\s+")
-_FILLERS = {"yaar", "matlab", "like", "basically", "actually", "arre", "na", "bhai"}
+_FILLERS = filler_set()
 
 
 def _variants(text: str, seed: int) -> list[str]:
