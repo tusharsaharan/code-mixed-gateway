@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     log_requests: bool = True
     cors_origins: list[str] = ["*"]
     compressor_method: str = "heuristic"
+    llmlingua2: bool = False
+    llmlingua2_rate: float = 0.5
     distilled_checkpoint: Path = Path("data/checkpoints/distilled.json")
     pricing_date: str = PRICING_DATE
     timeout_s: float = 30.0

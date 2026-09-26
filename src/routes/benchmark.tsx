@@ -74,6 +74,8 @@ type EvalSummary = {
   total_savings_usd: number;
   total_savings_inr: number;
   pricing_date: string;
+  metric_note?: string;
+  provenance?: { dataset: string | null; is_real: boolean; note: string };
 };
 
 function BenchmarkPage() {
@@ -85,9 +87,9 @@ function BenchmarkPage() {
   const [curveError, setCurveError] = useState<string | null>(null);
   const [summary, setSummary] = useState<EvalSummary | null>(loaderData.summary ?? null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
-  const [sweep, setSweep] = useState<{ method: string; target: number; accuracy: number }[] | null>(
-    null,
-  );
+  const [sweep, setSweep] = useState<
+    { method: string; target: number; accuracy: number; is_simulated?: boolean }[] | null
+  >(null);
 
   useEffect(() => {
     // sweep always fetches; curve/summary skip if loader provided
@@ -207,10 +209,20 @@ function BenchmarkPage() {
           Pricing date: {summary?.pricing_date ?? "—"} ·{" "}
           {summaryError ? `error: ${summaryError}` : "live from /v1/eval/summary"}
         </p>
+        {summary?.provenance ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Dataset: {summary.provenance.dataset ?? "none"} ·{" "}
+            {summary.provenance.is_real ? "real rows" : "synthetic rows"} · P0 study results
+            live under results/&lt;run_id&gt;/, never in this endpoint.
+          </p>
+        ) : null}
+        {summary?.metric_note ? (
+          <p className="mt-1 text-xs text-muted-foreground">{summary.metric_note}</p>
+        ) : null}
       </div>
 
       <div className="mt-14">
-        <SectionHeading kicker="Fig. 1 — live" title="Compression ratio vs task accuracy" />
+        <SectionHeading kicker="Fig. 1 — live" title="Compression ratio vs quality proxy" />
         <Card>
           {curveError ? (
             <p className="text-sm text-destructive">
@@ -238,7 +250,7 @@ function BenchmarkPage() {
                     <Legend />
                     <Bar
                       dataKey="accuracy"
-                      name="Task accuracy (reward)"
+                      name="Quality proxy (lexical reward)"
                       fill="hsl(var(--primary))"
                       radius={[8, 8, 0, 0]}
                     />
@@ -255,8 +267,11 @@ function BenchmarkPage() {
                 <span className="font-medium text-foreground">heuristic</span> = training-free
                 filler pruning. <span className="font-medium text-foreground">distilled</span> = CPU
                 rejection-sampling distillation (the report&apos;s fallback, honestly labelled).{" "}
-                <span className="font-medium text-foreground">llmlingua2</span> = simulated baseline
-                (heuristic −0.06, clearly marked as simulated).
+                <span className="font-medium text-foreground">llmlingua2</span> ={" "}
+                {curve.find((p) => p.method === "llmlingua2")?.is_simulated
+                  ? "simulated baseline (library not installed; heuristic −0.06, clearly marked as simulated)"
+                  : "measured with the real trained classifier (this gateway has the compression extra installed)"}
+                . Accuracy here is a lexical proxy (overlap/fuzzy match), not task accuracy.
               </p>
             </>
           )}
@@ -325,7 +340,10 @@ function BenchmarkPage() {
             </div>
             <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
               Sweep of 30/50/70/90% kept ratio — shows degradation as compression tightens.
-              `llmlingua2` is simulated.
+              {sweep.some((p) => p.method === "llmlingua2" && p.is_simulated)
+                ? " `llmlingua2` points are simulated here (library not installed)."
+                : " `llmlingua2` points are measured with the real classifier."}{" "}
+              Accuracy is a lexical proxy, not task accuracy.
             </p>
           </Card>
         </div>
@@ -348,7 +366,7 @@ function BenchmarkPage() {
               "Per tokenizer, so the tokenizer-fairness effect is visible rather than assumed",
             ],
             ["compression_ratio", "Swept, not fixed — the curve is the result, not one point"],
-            ["accuracy_at_ratio", "Task correctness at each ratio, per cascade tier"],
+            ["accuracy_at_ratio", "Lexical similarity at each ratio — a proxy, not task accuracy"],
             ["cost_inr / cost_usd", "Converted at a stated pricing date"],
             [
               "difficulty_score",

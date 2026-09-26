@@ -41,7 +41,15 @@ def _heuristic_compress(text: str) -> str:
 
 
 class Compressor:
-    """Zero-shot Hinglish prompt compressor (heuristic fast path + optional local-model path)."""
+    """Hinglish prompt compressor (distilled → llmlingua2 → model → heuristic).
+
+    Heuristic is the instant offline default. LLMLingua-2 is the trained
+    baseline from the proposal: a distilled token-classifier (BERT-base
+    multilingual, CPU-runnable) that genuinely compresses code-mixed text
+    instead of simulating it. Protected spans are masked to [[PSi]] markers
+    and force-preserved, because raw classifier output mangles entities
+    (user@example.com → "user example com").
+    """
 
     def __init__(
         self,
@@ -49,11 +57,15 @@ class Compressor:
         client: BaseLLMClient | None = None,
         use_model: bool = False,
         distilled_map: dict[str, str] | None = None,
+        use_llmlingua2: bool = False,
+        llmlingua2_rate: float = 0.5,
     ) -> None:
         self.counter = counter
         self.client = client
         self.use_model = use_model and client is not None
         self.distilled_map = distilled_map or {}
+        self.use_llmlingua2 = use_llmlingua2
+        self.llmlingua2_rate = llmlingua2_rate
 
     def _result(
         self,
@@ -102,6 +114,29 @@ class Compressor:
             final = text
         return self._result(text, final, spans, "heuristic")
 
+    def compress_llmlingua2(self, text: str, rate: float | None = None) -> CompressResult:
+        """Trained-baseline compression. Falls back to heuristic (honestly
+        labelled) when the library/weights are unavailable or a row fails."""
+        from gateway.modules.m2_compressor.llmlingua2 import get_compressor, is_available
+
+        rate = self.llmlingua2_rate if rate is None else rate
+        # Explicit call: always try the real classifier when installed.
+        # (The auto path below separately respects use_llmlingua2.)
+        if not is_available():
+            return self.compress_heuristic(text)
+        masked, spans = mask(text)
+        markers = [f"[[PS{i}]]" for i in range(len(spans))]
+        try:
+            got = get_compressor().compress_masked([masked], [markers], rate=rate)[0]
+        except ImportError:
+            return self.compress_heuristic(text)
+        if got is None:
+            return self.compress_heuristic(text)
+        final, ok = reinject(got, spans)
+        if not ok:
+            return self.compress_heuristic(text)
+        return self._result(text, final, spans, "llmlingua2")
+
     async def compress_model(self, text: str) -> CompressResult:
         masked, spans = mask(text)
         if self.client is None:
@@ -118,6 +153,11 @@ class Compressor:
     async def compress(self, text: str) -> CompressResult:
         if text in self.distilled_map:
             return self.compress_distilled(text)
+        if self.use_llmlingua2:
+            res = self.compress_llmlingua2(text)
+            if res.method == "llmlingua2":
+                return res
+            # Trained path unavailable/failed → continue down the chain.
         if self.use_model:
             return await self.compress_model(text)
         return self.compress_heuristic(text)

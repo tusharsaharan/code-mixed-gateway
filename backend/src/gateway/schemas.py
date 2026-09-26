@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 TIER = Literal["cheap", "premium"]
-METHOD = Literal["heuristic", "model", "passthrough", "distilled", "adaptive"]
+METHOD = Literal["heuristic", "model", "passthrough", "distilled", "adaptive", "llmlingua2"]
 
 
 class PromptRecord(BaseModel):
@@ -160,7 +160,9 @@ class EvalResult(BaseModel):
     token_savings_ratio: float
     bleu: float
     rouge_l: float
-    task_success: float
+    task_success: float = Field(description="LEXICAL proxy (string similarity), not task accuracy")
+    semantic_sim: float = 0.0
+    prompt_sim: float = 0.0
     span_preserved: bool
     cost_usd: float
     baseline_cost_usd: float
@@ -174,6 +176,8 @@ class EvalSummary(BaseModel):
     mean_bleu: float = 0.0
     mean_rouge_l: float = 0.0
     mean_task_success: float = 0.0
+    mean_semantic_sim: float = 0.0
+    mean_prompt_sim: float = 0.0
     span_preserved_rate: float = 0.0
     total_cost_usd: float = 0.0
     total_baseline_usd: float = 0.0
@@ -181,6 +185,7 @@ class EvalSummary(BaseModel):
     total_cost_inr: float = 0.0
     total_savings_inr: float = 0.0
     pricing_date: str = "2026-08-28"
+    metric_note: str = "lexical proxies, not task accuracy (see METRIC_NOTE)"
     results: list[EvalResult] = Field(default_factory=list)
 
 

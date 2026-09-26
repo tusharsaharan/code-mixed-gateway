@@ -84,6 +84,8 @@ class Gateway:
             ),
             use_model=not s.dry_run,
             distilled_map=distilled_map,
+            use_llmlingua2=s.llmlingua2,
+            llmlingua2_rate=s.llmlingua2_rate,
         )
 
         calibration = load_calibration(s.data_dir)

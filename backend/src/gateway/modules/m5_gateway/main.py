@@ -116,6 +116,7 @@ async def healthz():
             pass
     is_real = bench_n > 0
     from gateway.modules.m3_conformal.calibration_store import data_state
+    from gateway.modules.m2_compressor.llmlingua2 import is_available as _llm2_available
     from gateway.tokenizer import TokenCounter
 
     ds = data_state(gw.calibration)
@@ -124,6 +125,8 @@ async def healthz():
         "status": "ok",
         "dry_run": s.dry_run,
         "version": app.version,
+        "llmlingua2_available": _llm2_available(),
+        "llmlingua2_enabled": s.llmlingua2,
         "calibration_n": len(gw.calibration),
         "calibration_real": is_real,
         "data_state": ds["state"],
@@ -140,12 +143,23 @@ async def healthz():
 
 class CompressRequest(BaseModel):
     text: str
-    method: str | None = None  # heuristic | distilled | model | auto
+    method: str | None = None  # heuristic | distilled | llmlingua2 | model | auto
+    rate: float | None = None  # kept-fraction for llmlingua2 (0.05..0.95)
 
 
 class ReasoningBudgetRequest(BaseModel):
     text: str
     english_gloss: str | None = None
+
+
+class SemanticSimilarityRequest(BaseModel):
+    a: str
+    b: str
+    threshold: float = 0.55
+
+
+class TranslateGlossRequest(BaseModel):
+    text: str
 
 
 @app.get("/v1/models")
@@ -274,6 +288,8 @@ async def compress_endpoint(req: CompressRequest) -> dict:
         res = gw.compressor.compress_heuristic(text)
     elif method == "distilled":
         res = gw.compressor.compress_distilled(text)
+    elif method == "llmlingua2":
+        res = gw.compressor.compress_llmlingua2(text, rate=req.rate)
     elif method == "model":
         res = await gw.compressor.compress_model(text)
     elif method == "adaptive":
@@ -363,11 +379,15 @@ async def compress_endpoint(req: CompressRequest) -> dict:
 
 @app.get("/v1/compress/methods")
 async def compress_methods() -> dict:
+    from gateway.modules.m2_compressor.llmlingua2 import DEFAULT_MODEL, is_available
+
     return {
-        "methods": ["heuristic", "distilled", "model", "adaptive", "auto"],
+        "methods": ["heuristic", "distilled", "llmlingua2", "model", "adaptive", "auto"],
         "default": "auto",
+        "llmlingua2_available": is_available(),
+        "llmlingua2_model": DEFAULT_MODEL,
         "notes": (
-            "auto uses distilled if available, else model when not dry_run, "
+            "auto uses distilled if available, else llmlingua2 when enabled, else model when not dry_run, "
             "else heuristic; adaptive is code-mix-aware (novel)"
         ),
     }
@@ -952,6 +972,32 @@ async def code_mix_interpolate(req: CodeMixInterpolateRequest) -> dict:
     return {"original": text, "steps": steps, "variants": variants, "pricing_date": get_settings().pricing_date}
 
 
+@app.post("/v1/semantic/similarity")
+async def semantic_similarity(req: SemanticSimilarityRequest) -> dict:
+    from gateway.modules.m12_semantic.embeddings import get_embedder
+
+    emb = get_embedder()
+    sim = emb.similarity(req.a, req.b)
+    return {
+        "similarity": sim,
+        "preserves_meaning": sim >= req.threshold,
+        "threshold": req.threshold,
+        "backend": emb.backend,
+    }
+
+
+@app.post("/v1/translate/gloss")
+async def translate_gloss(req: TranslateGlossRequest) -> dict:
+    from gateway.modules.m12_semantic.translate import gloss_sync, translate_hinglish
+
+    gw = gateway()
+    if gw.settings.dry_run:
+        return gloss_sync(req.text).model_dump()
+    # Live: LLM translation via the cheap tier, embedding-verified, rule fallback.
+    res = await translate_hinglish(req.text, client=gw.router.cheap_client)
+    return res.model_dump()
+
+
 @app.get("/v1/tokenizer/report")
 async def tokenizer_report() -> dict:
     from gateway.modules.m1_pipeline.pipeline import iter_jsonl
@@ -1011,17 +1057,26 @@ async def eval_curve_sweep() -> list[dict]:
 
 @app.get("/v1/eval/summary")
 async def eval_summary() -> dict:
-    from gateway.modules.m7_eval.evaluate import HinglishEvaluator, load_records
+    from gateway.modules.m7_eval.evaluate import METRIC_NOTE, HinglishEvaluator, load_records
 
     s = get_settings()
     path = s.data_dir / "benchmark.jsonl"
     if not path.exists():
-        return {"n": 0, "message": "no benchmark found", "pricing_date": s.pricing_date}
+        return {"n": 0, "message": "no benchmark found", "pricing_date": s.pricing_date,
+                "metric_note": METRIC_NOTE, "provenance": {"dataset": None, "is_real": False}}
     records = load_records(path)
     summary = HinglishEvaluator(fx_rate_inr_per_usd=s.fx_rate_inr_per_usd).evaluate(
         records, pricing_date=s.pricing_date
     )
-    return summary.model_dump()
+    out = summary.model_dump()
+    rows = [_json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    out["provenance"] = {
+        "dataset": "benchmark.jsonl (demo benchmark, NOT the P0 study set)",
+        "is_real": bool(rows) and not all(r.get("is_synthetic", False) for r in rows),
+        "study_manifest": None,
+        "note": "P0 results live under results/<run_id>/manifest.json, never in this endpoint",
+    }
+    return out
 
 
 @app.get("/v1/eval/novel")

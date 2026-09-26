@@ -66,7 +66,18 @@ def _norm(text: str) -> str:
     return " ".join(text.split()).strip().lower()
 
 
-def _task_success(hyp: str, ref: str) -> float:
+#: Honesty label surfaced on every eval response. These scores are LEXICAL
+#: proxies (overlap/fuzzy match), not task accuracy. P0-grade accuracy requires
+#: structured scoring or blinded judgement (see experiments/token_study/).
+METRIC_NOTE = (
+    "task_success/bleu/rouge_l/reward are lexical similarity proxies, not task "
+    "accuracy; semantic_sim is a meaning proxy. Do not present them as measured "
+    "task correctness."
+)
+
+
+def _lexical_task_proxy(hyp: str, ref: str) -> float:
+    """String-similarity diagnostic in [0, 1]. NOT task accuracy (plan §6)."""
     if _norm(hyp) == _norm(ref):
         return 1.0
     if not hyp or not ref:
@@ -83,12 +94,24 @@ class HinglishEvaluator:
         premium_per_1k: float = PREMIUM_PER_1K_USD,
         cheap_per_1k: float = CHEAP_PER_1K_USD,
         fx_rate_inr_per_usd: float = FX_INR_PER_USD,
+        embedder=None,
     ) -> None:
         self.counter = counter or TokenCounter()
         self.premium_per_1k = premium_per_1k
         self.cheap_per_1k = cheap_per_1k
         self.fx_rate_inr_per_usd = fx_rate_inr_per_usd
         self.bleu, self.rouge_l = _load_metric_functions()
+        self._embedder = embedder  # lazy: resolved on first score() so eval never breaks offline
+
+    def _sim(self, a: str, b: str) -> float:
+        try:
+            if self._embedder is None:
+                from gateway.modules.m12_semantic.embeddings import get_embedder
+
+                self._embedder = get_embedder()
+            return self._embedder.similarity(a, b)
+        except Exception:
+            return 0.0
 
     def score(self, rec: EvalRecord) -> EvalResult:
         tok_orig = self.counter.count(rec.original)
@@ -108,7 +131,9 @@ class HinglishEvaluator:
             token_savings_ratio=round(savings_ratio, 6),
             bleu=round(self.bleu(rec.predicted_answer, rec.reference_answer), 6),
             rouge_l=round(self.rouge_l(rec.predicted_answer, rec.reference_answer), 6),
-            task_success=round(_task_success(rec.predicted_answer, rec.reference_answer), 6),
+            task_success=round(_lexical_task_proxy(rec.predicted_answer, rec.reference_answer), 6),
+            semantic_sim=self._sim(rec.predicted_answer, rec.reference_answer),
+            prompt_sim=self._sim(rec.original, rec.compressed),
             span_preserved=span_preserved,
             cost_usd=round(actual, 8),
             baseline_cost_usd=round(baseline, 8),
@@ -127,6 +152,8 @@ class HinglishEvaluator:
             mean_bleu=sum(r.bleu for r in results) / n,
             mean_rouge_l=sum(r.rouge_l for r in results) / n,
             mean_task_success=sum(r.task_success for r in results) / n,
+            mean_semantic_sim=sum(r.semantic_sim for r in results) / n,
+            mean_prompt_sim=sum(r.prompt_sim for r in results) / n,
             span_preserved_rate=sum(1 for r in results if r.span_preserved) / n,
             total_cost_usd=sum(r.cost_usd for r in results),
             total_baseline_usd=sum(r.baseline_cost_usd for r in results),
@@ -134,6 +161,7 @@ class HinglishEvaluator:
             total_cost_inr=sum(r.cost_inr for r in results),
             total_savings_inr=sum(r.savings_usd * self.fx_rate_inr_per_usd for r in results),
             pricing_date=pricing_date,
+            metric_note=METRIC_NOTE,
             results=results,
         )
         return summary
@@ -152,15 +180,53 @@ def save_report(summary: EvalSummary, path: Path) -> None:
     path.write_text(summary.model_dump_json(indent=2), encoding="utf-8")
 
 
+def _real_llmlingua2_batch(originals: list[str], rate: float) -> list[str] | None:
+    """Compress rows with the trained LLMLingua-2 classifier (batched, one model call).
+
+    Returns compressed strings aligned with `originals`, or None when the
+    library is not installed (caller labels the point `is_simulated`).
+    Per-row failures fall back to the heuristic individually — never shifts rows.
+    """
+    try:
+        from gateway.modules.m2_compressor.llmlingua2 import get_compressor, is_available
+        from gateway.modules.m2_compressor.safety_span import mask, reinject
+    except Exception:
+        return None
+    if not is_available():
+        return None
+    try:
+        masked_list: list[str] = []
+        spans_list: list = []
+        for t in originals:
+            m, s = mask(t)
+            masked_list.append(m)
+            spans_list.append(s)
+        markers = [[f"[[PS{i}]]" for i in range(len(s))] for s in spans_list]
+        got = get_compressor().compress_masked(masked_list, markers, rate=rate)
+    except Exception:
+        return None
+    from gateway.modules.m2_compressor.compressor import _heuristic_compress
+
+    out: list[str] = []
+    for orig, m, spans, c in zip(originals, masked_list, spans_list, got):
+        if c is None:
+            out.append(_heuristic_compress(m))
+            continue
+        final, ok = reinject(c, spans)
+        out.append(final if ok else _heuristic_compress(m))
+    return out
+
+
 def curve_points(
     benchmark: Path,
     checkpoint: Path | None = None,
 ) -> list[dict]:
     """Return Fig-1 ratio-vs-accuracy points for heuristic / distilled / llmlingua2.
 
-    Heuristic and distilled are measured; llmlingua2 is a simulated baseline
-    (labelled honestly) so the chart always has three methods even without the
-    external library installed.
+    Heuristic and distilled are measured; llmlingua2 is measured with the
+    trained classifier whenever the `compression` extra is installed, else a
+    honestly-labelled simulated baseline (heuristic − 0.06) so the chart
+    always has three methods.
     """
     from gateway.modules.m2_compressor.compressor import Compressor
     from gateway.modules.m10_train.distill import load_mapping
@@ -175,6 +241,9 @@ def curve_points(
     distilled_map = load_mapping(checkpoint or Path("data/checkpoints/distilled.json"))
     comp = Compressor(counter, distilled_map=distilled_map)
 
+    originals = [rec.get("original", "") for rec in records]
+    llm2_batch = _real_llmlingua2_batch(originals, rate=0.5)
+
     methods: list[tuple[str, callable]] = [
         ("heuristic", lambda t: comp.compress_heuristic(t).compressed),
         ("distilled", lambda t: comp.compress_distilled(t).compressed),
@@ -184,12 +253,16 @@ def curve_points(
     for method, fn in methods:
         ratios: list[float] = []
         rewards: list[float] = []
-        for rec in records:
+        comped_list = llm2_batch if (method == "llmlingua2" and llm2_batch is not None) else None
+        for idx, rec in enumerate(records):
             orig = rec.get("original", "")
             ref = rec.get("reference_answer", "")
             pred = rec.get("predicted_answer", ref)
-            comped = fn(orig)
-            if method == "llmlingua2":
+            if comped_list is not None:
+                comped = comped_list[idx]
+            else:
+                comped = fn(orig)
+            if method == "llmlingua2" and comped_list is None:
                 r = max(0.0, reward_fn(orig, comped, ref, pred) - 0.06)
             else:
                 r = reward_fn(orig, comped, ref, pred)
@@ -206,7 +279,7 @@ def curve_points(
                 "ratio": round(avg_ratio, 4),
                 "kept_pct": round(avg_ratio * 100, 1),
                 "accuracy": round(avg_reward, 4),
-                "is_simulated": method == "llmlingua2",
+                "is_simulated": method == "llmlingua2" and comped_list is None,
             }
         )
     return points
@@ -230,6 +303,7 @@ def curve_sweep(
     counter = TokenCounter()
     distilled_map = load_mapping(checkpoint or Path("data/checkpoints/distilled.json"))
     comp = Compressor(counter, distilled_map=distilled_map)
+    originals = [rec.get("original", "") for rec in records]
 
     def _to_target(text: str, target: float, base_fn):
         base = base_fn(text)
@@ -246,6 +320,9 @@ def curve_sweep(
 
     points: list[dict] = []
     for target in targets:
+        # LLMLingua-2 supports native ratio control: rate IS the kept
+        # fraction, so no truncation hack — one batched model call per target.
+        llm2_batch = _real_llmlingua2_batch(originals, rate=target)
         for method, fn in [
             ("heuristic", lambda t: comp.compress_heuristic(t).compressed),
             ("distilled", lambda t: comp.compress_distilled(t).compressed),
@@ -253,13 +330,17 @@ def curve_sweep(
         ]:
             ratios: list[float] = []
             rewards: list[float] = []
-            for rec in records:
+            comped_list = llm2_batch if (method == "llmlingua2" and llm2_batch is not None) else None
+            for idx, rec in enumerate(records):
                 orig = rec.get("original", "")
                 ref = rec.get("reference_answer", "")
                 pred = rec.get("predicted_answer", ref)
-                comped = _to_target(orig, target, fn)
+                if comped_list is not None:
+                    comped = comped_list[idx]
+                else:
+                    comped = _to_target(orig, target, fn)
                 r = reward_fn(orig, comped, ref, pred)
-                if method == "llmlingua2":
+                if method == "llmlingua2" and comped_list is None:
                     r = max(0.0, r - 0.06)
                 tok_o = counter.count(orig)
                 tok_c = counter.count(comped)
@@ -271,7 +352,7 @@ def curve_sweep(
                     "target": target,
                     "ratio": round(sum(ratios) / max(1, len(ratios)), 4),
                     "accuracy": round(sum(rewards) / max(1, len(rewards)), 4),
-                    "is_simulated": method == "llmlingua2",
+                    "is_simulated": method == "llmlingua2" and comped_list is None,
                 }
             )
     return points
