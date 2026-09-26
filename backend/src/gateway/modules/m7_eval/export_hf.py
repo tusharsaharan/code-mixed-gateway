@@ -12,7 +12,7 @@ DATASHEET_TEMPLATE = """# Code-Mixed (Hinglish) Benchmark — Datasheet
 **Pricing date:** {pricing_date}
 **Collection method:** synthetic generation from curated Hinglish templates + heuristic fluff injection (clearly labelled `is_synthetic=true`).
 **Consent:** no real user data; all rows are synthetic. Real-user pilot data will be consented and anonymized separately.
-**Grading protocol:** reference answers are templated checkable answers; task_success computed via BLEU/ROUGE-L/fuzzy ratio.
+**Grading protocol:** reference answers are templated checkable answers; task_success/BLEU/ROUGE-L are lexical similarity proxies, NOT task accuracy (see METRIC_NOTE).
 **Known limitations:** synthetic distribution does not replace real WhatsApp/support traffic; tokenizer numbers are whitespace/heuristic when HF tokenizers not installed.
 **License:** CC-BY-4.0 recommended for release.
 

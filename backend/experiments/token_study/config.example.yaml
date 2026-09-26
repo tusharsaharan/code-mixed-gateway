@@ -1,0 +1,62 @@
+study:
+  name: hinglish_prompt_compression_transfer
+  run_seed: 20260926
+  primary_margin_abs_score: 0.05
+  bootstrap_replicates: 10000
+  locked_test: true
+data:
+  source_name: x_risawoz
+  source_url: FILL_FROM_OFFICIAL_RELEASE_ONLY
+  source_revision: FILL_AFTER_DOWNLOAD
+  raw_sha256: FILL_AFTER_DOWNLOAD
+  language_variant: en_hi_codemixed
+  unit_of_split: dialogue
+  smoke_n: 20
+  dev_n: 150
+  test_min_n: 300
+  test_n: 500
+  test_phenomenon: code-mixing
+  minimum_context_turns: 2
+  split_seed: 20260926
+prompt:
+  template_version: v2
+  system_instruction: "You are a task-oriented assistant. Use only the supplied dialogue context. Return the required structured state and a concise assistant response."
+  compress_system_instruction: false
+  compress_final_user_turn: false
+  compress_dialogue_history: true
+  max_context_tokens_before_compression: 2048
+compression:
+  arms: [none, llmlingua2, llmlingua2_protected, heuristic]
+  requested_kept_rates: [0.90, 0.70, 0.50, 0.30]
+  checkpoint: microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank
+  context_level_filter: false
+  force_tokens: ["\n", "?", ".", ":", "{", "}", "[", "]"]
+  force_reserve_digit: true
+  max_force_token: 100
+answering:
+  provider: FILL_AT_RUN_TIME
+  model: FILL_AT_RUN_TIME
+  api_key_env: FILL_AT_RUN_TIME
+  temperature: 0
+  max_output_tokens: 1024
+  extra_body: {}
+  timeout_s: 60
+  max_retries: 4
+  pacing_seconds: 1.0
+judging:
+  enabled: true
+  model: FILL_AT_RUN_TIME
+  temperature: 0
+  rubric_version: v1
+cost:
+  currency: USD
+  pricing_date: FILL_AT_RUN_TIME
+  fx_inr_per_usd: FILL_FROM_NAMED_SOURCE_AT_RUN_TIME
+price_snapshot:
+  source_url: FILL_AT_RUN_TIME
+  access_date: FILL_AT_RUN_TIME
+  input_per_mtok_usd: FILL_AT_RUN_TIME
+  output_per_mtok_usd: FILL_AT_RUN_TIME
+  judge_input_per_mtok_usd: FILL_AT_RUN_TIME
+  judge_output_per_mtok_usd: FILL_AT_RUN_TIME
+  note: FILL_AT_RUN_TIME

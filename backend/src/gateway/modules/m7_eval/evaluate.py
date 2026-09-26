@@ -66,7 +66,18 @@ def _norm(text: str) -> str:
     return " ".join(text.split()).strip().lower()
 
 
-def _task_success(hyp: str, ref: str) -> float:
+#: Honesty label surfaced on every eval response. These scores are LEXICAL
+#: proxies (overlap/fuzzy match), not task accuracy. P0-grade accuracy requires
+#: structured scoring or blinded judgement (see experiments/token_study/).
+METRIC_NOTE = (
+    "task_success/bleu/rouge_l/reward are lexical similarity proxies, not task "
+    "accuracy; semantic_sim is a meaning proxy. Do not present them as measured "
+    "task correctness."
+)
+
+
+def _lexical_task_proxy(hyp: str, ref: str) -> float:
+    """String-similarity diagnostic in [0, 1]. NOT task accuracy (plan §6)."""
     if _norm(hyp) == _norm(ref):
         return 1.0
     if not hyp or not ref:
@@ -120,7 +131,7 @@ class HinglishEvaluator:
             token_savings_ratio=round(savings_ratio, 6),
             bleu=round(self.bleu(rec.predicted_answer, rec.reference_answer), 6),
             rouge_l=round(self.rouge_l(rec.predicted_answer, rec.reference_answer), 6),
-            task_success=round(_task_success(rec.predicted_answer, rec.reference_answer), 6),
+            task_success=round(_lexical_task_proxy(rec.predicted_answer, rec.reference_answer), 6),
             semantic_sim=self._sim(rec.predicted_answer, rec.reference_answer),
             prompt_sim=self._sim(rec.original, rec.compressed),
             span_preserved=span_preserved,
@@ -150,6 +161,7 @@ class HinglishEvaluator:
             total_cost_inr=sum(r.cost_inr for r in results),
             total_savings_inr=sum(r.savings_usd * self.fx_rate_inr_per_usd for r in results),
             pricing_date=pricing_date,
+            metric_note=METRIC_NOTE,
             results=results,
         )
         return summary

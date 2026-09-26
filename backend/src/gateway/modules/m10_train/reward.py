@@ -11,12 +11,13 @@ def reward(
     reference_answer: str,
     predicted_answer: str,
 ) -> float:
-    """Task-correctness reward in [0, 1] for a compressed prompt.
+    """Lexical-proxy reward in [0, 1] for a compressed prompt.
 
-    The report's Pillar A requirement: reward is actual downstream task
-    correctness on code-mixed text, not proxy perplexity. This combines:
-    - answer fidelity (predicted vs reference)
-    - compression faithfulness (compressed still entails the original's intent)
+    Honesty note (research plan §6): despite the historical name, this is NOT
+    measured downstream task correctness — it combines unigram-overlap /
+    fuzzy-match proxies. P0-grade task scoring requires structured scoring or
+    blinded judgement (see experiments/token_study/). Do not relabel this as
+    accuracy in research endpoints or reports.
     """
     answer_score = _answer_score(predicted_answer, reference_answer)
     faithfulness = _faithfulness(compressed, original)

@@ -17,3 +17,7 @@ data/*.db
 data/hf_dataset/
 data/checkpoints/*.json
 data/eval_report.json
+data/raw/
+data/processed/
+experiments/token_study/config.yaml
+results/

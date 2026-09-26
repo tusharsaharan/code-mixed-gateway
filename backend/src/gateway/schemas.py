@@ -159,7 +159,7 @@ class EvalResult(BaseModel):
     token_savings_ratio: float
     bleu: float
     rouge_l: float
-    task_success: float
+    task_success: float = Field(description="LEXICAL proxy (string similarity), not task accuracy")
     semantic_sim: float = 0.0
     prompt_sim: float = 0.0
     span_preserved: bool
@@ -184,6 +184,7 @@ class EvalSummary(BaseModel):
     total_cost_inr: float = 0.0
     total_savings_inr: float = 0.0
     pricing_date: str = "2026-08-28"
+    metric_note: str = "lexical proxies, not task accuracy (see METRIC_NOTE)"
     results: list[EvalResult] = Field(default_factory=list)
 
 

@@ -400,17 +400,26 @@ async def eval_curve_sweep() -> list[dict]:
 
 @app.get("/v1/eval/summary")
 async def eval_summary() -> dict:
-    from gateway.modules.m7_eval.evaluate import HinglishEvaluator, load_records
+    from gateway.modules.m7_eval.evaluate import METRIC_NOTE, HinglishEvaluator, load_records
 
     s = get_settings()
     path = s.data_dir / "benchmark.jsonl"
     if not path.exists():
-        return {"n": 0, "message": "no benchmark found", "pricing_date": s.pricing_date}
+        return {"n": 0, "message": "no benchmark found", "pricing_date": s.pricing_date,
+                "metric_note": METRIC_NOTE, "provenance": {"dataset": None, "is_real": False}}
     records = load_records(path)
     summary = HinglishEvaluator(fx_rate_inr_per_usd=s.fx_rate_inr_per_usd).evaluate(
         records, pricing_date=s.pricing_date
     )
-    return summary.model_dump()
+    out = summary.model_dump()
+    rows = [_json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    out["provenance"] = {
+        "dataset": "benchmark.jsonl (demo benchmark, NOT the P0 study set)",
+        "is_real": bool(rows) and not all(r.get("is_synthetic", False) for r in rows),
+        "study_manifest": None,
+        "note": "P0 results live under results/<run_id>/manifest.json, never in this endpoint",
+    }
+    return out
 
 
 @app.get("/v1/calibration/metrics")
