@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     compressor_method: str = "heuristic"
     llmlingua2: bool = False
     llmlingua2_rate: float = 0.5
+    use_crf: bool = True
+    crf_model_path: Path = Path("data/models/crf_compressor.pkl")
+    tfidf_path: Path = Path("data/tfidf/hinglish_idf.json")
+    crf_aggressive: bool = False
     distilled_checkpoint: Path = Path("data/checkpoints/distilled.json")
     pricing_date: str = PRICING_DATE
     timeout_s: float = 30.0
@@ -49,7 +53,7 @@ class Settings(BaseSettings):
 
     telegram_token: str = ""
 
-    @field_validator("data_dir", "pilot_db", "distilled_checkpoint", mode="before")
+    @field_validator("data_dir", "pilot_db", "distilled_checkpoint", "crf_model_path", "tfidf_path", mode="before")
     @classmethod
     def _resolve_path(cls, v):
         if isinstance(v, str):

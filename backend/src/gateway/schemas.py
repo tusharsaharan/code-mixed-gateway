@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 TIER = Literal["cheap", "premium"]
-METHOD = Literal["heuristic", "model", "passthrough", "distilled", "adaptive", "llmlingua2"]
+METHOD = Literal["heuristic", "model", "passthrough", "distilled", "adaptive", "llmlingua2", "rewrite", "crf"]
 
 
 class PromptRecord(BaseModel):

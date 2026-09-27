@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from gateway.lexicons import prune
 from gateway.llm import BaseLLMClient
-from gateway.modules.m2_compressor.prompts import compression_messages
+from gateway.modules.m2_compressor.prompts import compression_messages, rewrite_messages
 from gateway.modules.m2_compressor.safety_span import mask, reinject
+from gateway.modules.m10_train.reward import reward
 from gateway.schemas import CompressResult, SafetySpan
 from gateway.tokenizer import TokenCounter
+
+#: Provisional acceptance bar for rewrite candidates (fidelity of the
+#: rewrite against the reference). FINAL bar is fit to human_check.csv
+#: before freezing — see DECISION_importance.json.
+REWRITE_BAR = 0.6
 
 
 class Compressor:
@@ -28,6 +34,9 @@ class Compressor:
         distilled_map: dict[str, str] | None = None,
         use_llmlingua2: bool = False,
         llmlingua2_rate: float = 0.5,
+        use_crf: bool = False,
+        crf_model_path=None,
+        tfidf_path=None,
     ) -> None:
         self.counter = counter
         self.client = client
@@ -35,6 +44,19 @@ class Compressor:
         self.distilled_map = distilled_map or {}
         self.use_llmlingua2 = use_llmlingua2
         self.llmlingua2_rate = llmlingua2_rate
+        self.use_crf = use_crf
+        self._linguistic = None
+        if use_crf:
+            try:
+                from gateway.modules.m2_compressor.linguistic import LinguisticCompressor
+
+                self._linguistic = LinguisticCompressor(
+                    counter,
+                    crf_model_path=crf_model_path,
+                    tfidf_path=tfidf_path,
+                )
+            except Exception:
+                self._linguistic = None
 
     def _result(
         self,
@@ -108,6 +130,57 @@ class Compressor:
             return self.compress_heuristic(text)
         return self._result(text, final, spans, "llmlingua2")
 
+    def compress_crf(self, text: str) -> CompressResult:
+        """CRF linguistic compression. Falls back to heuristic (honestly
+        labelled) when the model file/weights are unavailable."""
+        if self._linguistic is None:
+            return self.compress_heuristic(text)
+        try:
+            res = self._linguistic.compress(text)
+        except Exception:
+            return self.compress_heuristic(text)
+        if res.ratio >= 1.0 and res.compressed == text:
+            # No compression achieved (or fail-closed) -> heuristic label.
+            heur = self.compress_heuristic(text)
+            return heur
+        return res
+
+    def select_best(
+        self, original: str, candidates: list[str], reference: str, bar: float = REWRITE_BAR,
+        brevity_lambda: float = 0.3,
+    ) -> tuple[str, float, bool]:
+        """Pick max (reward - lambda*ratio) candidate; accepted iff reward >= bar.
+
+        Joint score forces real compression: a longer rewrite must earn its
+        tokens with proportionally higher fidelity. Returns (text, reward,
+        accepted). Rejected selections fall back down the chain.
+        """
+        scored = []
+        tok_o = max(1, self.counter.count(original))
+        for c in candidates:
+            if not c or not c.strip():
+                continue
+            r = reward(original, c, reference, c)
+            ratio = max(1, self.counter.count(c)) / tok_o
+            scored.append((c, r, r - brevity_lambda * ratio))
+        if not scored:
+            return original, 0.0, False
+        best, best_r, _ = max(scored, key=lambda kv: kv[2])
+        return best, round(best_r, 6), bool(best_r >= bar)
+
+    async def compress_rewrite(
+        self, text: str, protected: list[str] | None = None, temperature: float = 0.3
+    ) -> CompressResult:
+        """Single LLM rewrite with Judge-A protected-term constraints."""
+        masked, spans = mask(text)
+        if self.client is None:
+            return self.compress_heuristic(text)
+        result = await self.client.chat(rewrite_messages(masked, protected), temperature=temperature)
+        final, ok = reinject(result.content.strip(), spans)
+        if not ok:
+            final = text
+        return self._result(text, final, spans, "rewrite")
+
     async def compress_model(self, text: str) -> CompressResult:
         masked, spans = mask(text)
         if self.client is None:
@@ -128,11 +201,33 @@ class Compressor:
     async def compress(self, text: str) -> CompressResult:
         if text in self.distilled_map:
             return self.compress_distilled(text)
+        if self.use_crf and self._linguistic is not None:
+            res = self.compress_crf(text)
+            if res.method == "crf" and res.ratio < 1.0:
+                return res
+            # CRF unavailable (heuristic-labelled) or no compression -> chain.
         if self.use_llmlingua2:
             res = self.compress_llmlingua2(text)
             if res.method == "llmlingua2":
                 return res
             # Trained path unavailable/failed → continue down the chain.
         if self.use_model:
+            # Rewrite path first: constrained LLM compression with Judge-A
+            # protected terms. Served only if spans reinject cleanly AND the
+            # rewrite is actually shorter; otherwise continue down the chain.
+            # (No reward gate here — no reference exists at serve time. The
+            # gate runs in evaluation, where references exist.)
+            try:
+                from gateway.modules.m2_compressor.safety_span import detect_spans as _spans
+
+                prot = [sp.text for sp in _spans(text)]
+                prot += [t for t in text.split() if t.lower().strip(",.!?") in
+                         {"nahi", "nahin", "nhi", "nai", "ni", "not", "never", "n't", "mat",
+                          "kya", "kahan", "kidhar", "kaise", "kab", "kyun", "kyu", "kaun"}]
+                rw = await self.compress_rewrite(text, prot)
+                if rw.method == "rewrite" and rw.ratio < 1.0:
+                    return rw
+            except Exception:
+                pass
             return await self.compress_model(text)
         return self.compress_heuristic(text)

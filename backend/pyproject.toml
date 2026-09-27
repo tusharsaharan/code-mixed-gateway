@@ -20,6 +20,7 @@ telegram = ["python-telegram-bot>=21.0"]
 hf = ["datasets>=2.19", "pandas>=2.0"]
 semantic = ["sentence-transformers>=2.2"]
 compression = ["llmlingua>=0.2", "torch>=2.0", "transformers>=4.40", "tiktoken>=0.7"]
+crf = ["sklearn-crfsuite>=0.3.6", "scikit-learn>=1.3"]
 dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
