@@ -1,10 +1,10 @@
-"""Build the self-contained Colab notebook for GPU LLM-teacher bootstrap.
+"""Build self-contained GPU notebooks for LLM-teacher bootstrap.
 
 Reads the current source files and embeds them as %%writefile cells so the
-notebook runs without pushing uncommitted work to GitHub.
+notebooks run without pushing uncommitted work to GitHub.
 
 Usage:
-    python scripts/build_colab_notebook.py [--out backend/colab/crf_teacher_colab.ipynb]
+    python scripts/build_colab_notebook.py [--platform colab|kaggle|all]
 """
 
 from __future__ import annotations
@@ -31,6 +31,12 @@ EMBED_FILES = [
 
 REPO_URL = "https://github.com/tusharsaharan/code-mixed-gateway.git"
 
+#: Per-platform roots, workdirs, and artifact homes.
+PLATFORMS = {
+    "colab": {"root": "/content", "repo": "/content/code-mixed-gateway"},
+    "kaggle": {"root": "/kaggle/working", "repo": "/kaggle/working/code-mixed-gateway"},
+}
+
 
 def md(source: str) -> dict:
     return {"cell_type": "markdown", "metadata": {}, "source": source.splitlines(keepends=True)}
@@ -46,10 +52,24 @@ def code(source: str) -> dict:
     }
 
 
-def build() -> dict:
+def build(platform: str) -> dict:
     repo_root = BACKEND_ROOT.parent
-    cells: list[dict] = [
-        md(
+    home = PLATFORMS[platform]["repo"]
+    if platform == "kaggle":
+        header = (
+            "# CRF Hinglish Compressor — GPU LLM-Teacher Bootstrap (Kaggle)\n"
+            "\n"
+            "**Before running:** Settings (right sidebar) → Accelerator: **GPU T4 x2** → "
+            "Internet: **ON** (needed for the model download).\n"
+            "\n"
+            "Pipeline: clone repo → embed CRF sources → generate 5K prompts →\n"
+            "deterministic baseline (fast) → LLM-teacher labels on GPU → train both CRFs →\n"
+            "compare on held-out slice. Artifacts persist in the working dir and are\n"
+            "downloadable from the Output panel. Set `HF_MODEL` below "
+            "(default needs no access token)."
+        )
+    else:
+        header = (
             "# CRF Hinglish Compressor — GPU LLM-Teacher Bootstrap\n"
             "\n"
             "**Before running:** Runtime → Change runtime type → **T4 GPU**.\n"
@@ -58,27 +78,29 @@ def build() -> dict:
             "deterministic baseline (fast) → LLM-teacher labels on GPU → train both CRFs →\n"
             "compare on held-out slice → download winner artifacts.\n"
             "Set `HF_MODEL` below (default needs no access token)."
-        ),
+        )
+    cells: list[dict] = [
+        md(header),
         code(
             "!nvidia-smi --query-gpu=name,memory.total --format=csv\n"
             "import torch\n"
-            "assert torch.cuda.is_available(), 'Enable a GPU runtime first (Runtime → Change runtime type → T4 GPU)'\n"
+            "assert torch.cuda.is_available(), 'Enable a GPU accelerator first (see header)'\n"
             "print('cuda:', torch.cuda.get_device_name(0))"
         ),
         code(
-            f"!rm -rf /content/code-mixed-gateway\n"
-            f"!git clone --depth 1 {REPO_URL} /content/code-mixed-gateway\n"
+            f"!rm -rf {home}\n"
+            f"!git clone --depth 1 {REPO_URL} {home}\n"
             "!pip -q install sklearn-crfsuite scikit-learn transformers accelerate bitsandbytes sentence-transformers\n"
             "print('deps ok')"
         ),
     ]
     for rel in EMBED_FILES:
         content = (repo_root / rel).read_text(encoding="utf-8")
-        dest = "/content/code-mixed-gateway/" + rel
+        dest = home + "/" + rel
         cells.append(code(f"%%writefile {dest}\n{content}"))
     cells += [
         code(
-            "%cd /content/code-mixed-gateway/backend\n"
+            f"%cd {home}/backend\n"
             "!python scripts/generate_hinglish_prompts.py --n 5000 --seed 7 --variants 2 \\\n"
             "  --out data/training/prompts.jsonl\n"
             "!python scripts/build_tfidf.py --prompts data/training/prompts.jsonl --out data/tfidf/hinglish_idf.json"
@@ -101,61 +123,87 @@ def build() -> dict:
             "!python scripts/train_crf.py --data data/training/bootstrap_llm.jsonl "
             "--model data/models/crf_llm.pkl --idf data/tfidf/hinglish_idf.json"
         ),
-        code(
-            "# Back up labels to Google Drive NOW -- /content is wiped if the runtime dies.\n"
-            "# Run this cell the moment bootstrap finishes, before anything else.\n"
-            "from google.colab import drive\n"
-            "drive.mount('/content/drive')\n"
-            "!mkdir -p /content/drive/MyDrive/crf_bootstrap && "
-            "cp data/training/bootstrap_llm.jsonl data/training/prompts.jsonl "
-            "data/tfidf/hinglish_idf.json /content/drive/MyDrive/crf_bootstrap/ && "
-            "ls -la /content/drive/MyDrive/crf_bootstrap/\n"
-            "print('labels backed up to Drive/crf_bootstrap/')"
-        ),
-        code(
-            "# Head-to-head on a held-out slice (seed 999, never used in training)\n"
-            "!python scripts/compare_teachers.py --models det=data/models/crf_det.pkl llm=data/models/crf_llm.pkl "
-            "--limit 500 --seed 999 | tee data/training/teacher_comparison.json"
-        ),
-        code(
-            "import os\n"
-            "from google.colab import files\n"
-            "wanted = {\n"
-            "    'data/models/crf_llm.pkl': 'train cell (train_crf.py on bootstrap_llm.jsonl)',\n"
-            "    'data/training/bootstrap_llm.jsonl': 'HF bootstrap cell (re-run it: --resume continues)',\n"
-            "    'data/training/teacher_comparison.json': 'compare cell',\n"
-            "}\n"
-            "for path, rerun in wanted.items():\n"
-            "    if os.path.exists(path):\n"
-            "        files.download(path)\n"
-            "    else:\n"
-            "        print(f'MISSING {path} -> re-run the {rerun}')\n"
-            "print('Copy crf_llm.pkl over backend/data/models/crf_compressor.pkl locally if the llm row wins.')\n"
-            "print('Then re-run: pytest tests/test_linguistic_* tests/test_m2.py tests/test_lexicon.py')"
-        ),
     ]
+    if platform == "kaggle":
+        cells += [
+            code(
+                "# Head-to-head on a held-out slice (seed 999, never used in training)\n"
+                "!python scripts/compare_teachers.py --models det=data/models/crf_det.pkl llm=data/models/crf_llm.pkl "
+                "--limit 500 --seed 999 | tee data/training/teacher_comparison.json"
+            ),
+            code(
+                "# Artifacts persist in the working dir -- download them from the\n"
+                "# Output panel (right side, under this notebook):\n"
+                "!ls -la data/models/crf_llm.pkl data/training/bootstrap_llm.jsonl "
+                "data/training/teacher_comparison.json\n"
+                "print('Download the three files above from the Output panel.')"
+            ),
+        ]
+    else:
+        cells += [
+            code(
+                "# Back up labels to Google Drive NOW -- /content is wiped if the runtime dies.\n"
+                "# Run this cell the moment bootstrap finishes, before anything else.\n"
+                "from google.colab import drive\n"
+                "drive.mount('/content/drive')\n"
+                "!mkdir -p /content/drive/MyDrive/crf_bootstrap && "
+                "cp data/training/bootstrap_llm.jsonl data/training/prompts.jsonl "
+                "data/tfidf/hinglish_idf.json /content/drive/MyDrive/crf_bootstrap/ && "
+                "ls -la /content/drive/MyDrive/crf_bootstrap/\n"
+                "print('labels backed up to Drive/crf_bootstrap/')"
+            ),
+            code(
+                "# Head-to-head on a held-out slice (seed 999, never used in training)\n"
+                "!python scripts/compare_teachers.py --models det=data/models/crf_det.pkl llm=data/models/crf_llm.pkl "
+                "--limit 500 --seed 999 | tee data/training/teacher_comparison.json"
+            ),
+            code(
+                "import os\n"
+                "from google.colab import files\n"
+                "wanted = {\n"
+                "    'data/models/crf_llm.pkl': 'train cell (train_crf.py on bootstrap_llm.jsonl)',\n"
+                "    'data/training/bootstrap_llm.jsonl': 'HF bootstrap cell (re-run it: --resume continues)',\n"
+                "    'data/training/teacher_comparison.json': 'compare cell',\n"
+                "}\n"
+                "for path, rerun in wanted.items():\n"
+                "    if os.path.exists(path):\n"
+                "        files.download(path)\n"
+                "    else:\n"
+                "        print(f'MISSING {path} -> re-run the {rerun}')\n"
+                "print('Copy crf_llm.pkl over backend/data/models/crf_compressor.pkl locally if the llm row wins.')\n"
+                "print('Then re-run: pytest tests/test_linguistic_* tests/test_m2.py tests/test_lexicon.py')"
+            ),
+        ]
+    metadata: dict = {
+        "accelerator": "GPU",
+        "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+    }
+    if platform == "kaggle":
+        metadata["kaggle"] = {
+            "accelerator": "GPU",
+            "internet": True,
+            "language": "python",
+        }
     return {
         "nbformat": 4,
         "nbformat_minor": 5,
-        "metadata": {
-            "accelerator": "GPU",
-            "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-        },
+        "metadata": metadata,
         "cells": cells,
     }
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default="backend/colab/crf_teacher_colab.ipynb")
+    ap.add_argument("--platform", choices=["colab", "kaggle", "all"], default="all")
     args = ap.parse_args()
     repo_root = BACKEND_ROOT.parent
-    out = Path(args.out)
-    if not out.is_absolute():
-        out = repo_root / out
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(build(), indent=1, ensure_ascii=False), encoding="utf-8")
-    print(f"wrote {out} ({len(EMBED_FILES)} embedded files)")
+    platforms = ["colab", "kaggle"] if args.platform == "all" else [args.platform]
+    out_map = {"colab": "backend/colab/crf_teacher_colab.ipynb", "kaggle": "backend/kaggle/crf_teacher_kaggle.ipynb"}
+    for plat in platforms:
+        out = repo_root / out_map[plat]
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(build(plat), indent=1, ensure_ascii=False), encoding="utf-8")
+        print(f"wrote {out}")
 
 
 if __name__ == "__main__":
