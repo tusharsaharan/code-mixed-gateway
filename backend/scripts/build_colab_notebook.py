@@ -68,7 +68,7 @@ def build() -> dict:
         code(
             f"!rm -rf /content/code-mixed-gateway\n"
             f"!git clone --depth 1 {REPO_URL} /content/code-mixed-gateway\n"
-            "!pip -q install sklearn-crfsuite scikit-learn transformers accelerate sentence-transformers\n"
+            "!pip -q install sklearn-crfsuite scikit-learn transformers accelerate bitsandbytes sentence-transformers\n"
             "print('deps ok')"
         ),
     ]
@@ -91,14 +91,26 @@ def build() -> dict:
             "--model data/models/crf_det.pkl --idf data/tfidf/hinglish_idf.json"
         ),
         code(
-            "# LLM teacher on GPU. --resume makes reruns continue where a crash stopped\n"
-            "# (results flush to disk after every batch, so nothing is ever lost).\n"
+            "# LLM teacher on GPU, 4-bit quantized (fits fully on a T4, no CPU offload).\n"
+            "# Expect well under an hour for 5K. --resume continues after a crash;\n"
+            "# results flush to disk after every batch, so nothing is ever lost.\n"
             "HF_MODEL = 'mistralai/Mistral-7B-Instruct-v0.1'  # or 'Qwen/Qwen2.5-7B-Instruct' (needs token + license)\n"
-            "HF_BATCH = 8\n"
+            "HF_BATCH = 4\n"
             "!python scripts/bootstrap_crf_data.py --prompts data/training/prompts.jsonl "
             "--out data/training/bootstrap_llm.jsonl --hf-model \"$HF_MODEL\" --hf-batch \"$HF_BATCH\" --resume\n"
             "!python scripts/train_crf.py --data data/training/bootstrap_llm.jsonl "
             "--model data/models/crf_llm.pkl --idf data/tfidf/hinglish_idf.json"
+        ),
+        code(
+            "# Back up labels to Google Drive NOW -- /content is wiped if the runtime dies.\n"
+            "# Run this cell the moment bootstrap finishes, before anything else.\n"
+            "from google.colab import drive\n"
+            "drive.mount('/content/drive')\n"
+            "!mkdir -p /content/drive/MyDrive/crf_bootstrap && "
+            "cp data/training/bootstrap_llm.jsonl data/training/prompts.jsonl "
+            "data/tfidf/hinglish_idf.json /content/drive/MyDrive/crf_bootstrap/ && "
+            "ls -la /content/drive/MyDrive/crf_bootstrap/\n"
+            "print('labels backed up to Drive/crf_bootstrap/')"
         ),
         code(
             "# Head-to-head on a held-out slice (seed 999, never used in training)\n"

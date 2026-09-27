@@ -188,16 +188,20 @@ async def _llm_compress(
 def _hf_compress(
     texts: list[str],
     hf_model: str,
-    batch_size: int = 8,
+    batch_size: int = 4,
     max_new_tokens: int = 60,
+    load_4bit: bool = True,
     on_batch=None,
 ) -> list[str | None]:
     """Synchronous HuggingFace GPU teacher (for Colab: device_map=auto).
 
     Batched text-generation with the same few-shot system prompt as the API
-    path. Requires transformers + accelerate + a CUDA GPU. When `on_batch`
-    is given, it is called as on_batch(start_index, batch_outputs) after
-    every batch so callers can flush results incrementally (crash-safe).
+    path. Requires transformers + accelerate + a CUDA GPU. With 4-bit
+    quantization (default, needs bitsandbytes) a 7B model fits fully on a
+    16GB T4 with no CPU offload -- roughly 10-20x faster than fp16 spillover.
+    When `on_batch` is given, it is called as on_batch(start_index,
+    batch_outputs) after every batch so callers can flush results
+    incrementally (crash-safe).
     """
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -209,11 +213,27 @@ def _hf_compress(
     # decoder-only models (right-padding lets short sequences in a batch
     # attend to trailing pad tokens, degrading their outputs).
     tok.padding_side = "left"
-    model = AutoModelForCausalLM.from_pretrained(
-        hf_model,
-        device_map="auto",
-        torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
-    )
+    use_bf16 = torch.cuda.is_bf16_supported()
+    if load_4bit:
+        try:
+            from transformers import BitsAndBytesConfig
+        except ImportError as exc:
+            raise ImportError("4-bit teacher needs bitsandbytes (pip install bitsandbytes)") from exc
+        quant = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16 if use_bf16 else torch.float16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            hf_model, device_map="auto", quantization_config=quant
+        )
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            hf_model,
+            device_map="auto",
+            torch_dtype=torch.bfloat16 if use_bf16 else torch.float16,
+        )
     model.eval()
 
     out: list[str | None] = []
@@ -394,7 +414,7 @@ async def main_async(args) -> None:
                     _record(reason, row, fh)
                 fh.flush()
 
-            _hf_compress(masked_texts, args.hf_model, args.hf_batch, on_batch=_on_batch)
+            _hf_compress(masked_texts, args.hf_model, args.hf_batch, load_4bit=args.hf_4bit, on_batch=_on_batch)
         else:
             compressed_list = await _llm_compress(
                 masked_texts,
@@ -426,7 +446,9 @@ def main() -> None:
     ap.add_argument("--concurrency", type=int, default=8)
     ap.add_argument("--timeout", type=float, default=120.0)
     ap.add_argument("--hf-model", default="", help="HF model id for local GPU teacher (Colab)")
-    ap.add_argument("--hf-batch", type=int, default=8)
+    ap.add_argument("--hf-batch", type=int, default=4)
+    ap.add_argument("--hf-4bit", action=argparse.BooleanOptionalAction, default=True,
+                    help="4-bit quantize the HF teacher (needs bitsandbytes; fits 7B fully on a T4)")
     ap.add_argument("--resume", action="store_true", help="Skip ids already in --out (crash-safe reruns)")
     args = ap.parse_args()
     asyncio.run(main_async(args))
