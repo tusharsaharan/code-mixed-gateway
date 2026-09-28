@@ -79,6 +79,9 @@ The backend is built in FastAPI (`python 3.10+`) and heavily modularized:
   * `POST /v1/compress/redteam` (Automated grading for the Adversarial Arena)
 * **`m12_novel`:** The true research engine. Contains `adaptive.py` (calculating the target ratio: `Base + (0.30 * mix) + (0.18 * diff)`), `gloss.py` (translating Hinglish slang for benchmark controls), and `analysis.py` (the code-mix bucketing loops).
 
+### Cascade routing research (live study)
+The active routing study — router fine-tuning, difficulty scoring, conformal calibration, graded datasets and the full status report — lives at `backend/experiments/cascade_routing/` (report: `cascade_full_report.pdf`; pipeline scripts: `backend/scripts/router_track/`).
+
 ## Setup & Execution
 **Frontend:**
 ```bash
