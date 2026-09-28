@@ -55,7 +55,17 @@ def main() -> None:
 
     prompts_path = BACKEND_ROOT / args.prompts if not Path(args.prompts).is_absolute() else Path(args.prompts)
     idf_path = BACKEND_ROOT / args.idf if not Path(args.idf).is_absolute() else Path(args.idf)
+    if not prompts_path.exists():
+        print(f"ERROR: prompts file not found: {prompts_path}", file=sys.stderr)
+        raise SystemExit(2)
     texts = load_texts(prompts_path, args.limit, args.seed)
+    if not texts:
+        print(
+            f"ERROR: no prompts selected from {prompts_path} "
+            "(empty file or --limit 0?) -- refusing to print an empty table",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
 
     specs: dict[str, Path] = {}
     for item in args.models:
